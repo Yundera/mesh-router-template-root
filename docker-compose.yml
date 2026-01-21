@@ -45,7 +45,7 @@ services:
       - pcs
 
   casaos:
-    image: rg.fr-par.scw.cloud/aptero/casa-img:latest
+    image: ghcr.io/yundera/casa-img:0.4.15-41
     container_name: casaos
     hostname: casaos
     restart: unless-stopped
