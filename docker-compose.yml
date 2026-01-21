@@ -1,0 +1,95 @@
+services:
+  mesh-router:
+    image: rg.fr-par.scw.cloud/aptero/mesh-router:latest
+    container_name: mesh-router
+    hostname: mesh-router
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    environment:
+      - PROVIDER=%PROVIDER_STR%
+      - ROUTING_TARGET_HOST=caddy
+      - ROUTING_TARGET_PORT=80
+    networks:
+      - pcs
+    depends_on:
+      - caddy
+
+  mesh-router-agent:
+    image: ghcr.io/yundera/mesh-router-agent:latest
+    container_name: mesh-router-agent
+    hostname: mesh-router-agent
+    restart: unless-stopped
+    environment:
+      - PROVIDER=%PROVIDER_STR%
+      - PUBLIC_IP=%PUBLIC_IP%
+    networks:
+      - pcs
+
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:ci-alpine
+    container_name: caddy
+    hostname: caddy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - CADDY_INGRESS_NETWORKS=pcs
+    networks:
+      - pcs
+
+  casaos:
+    image: rg.fr-par.scw.cloud/aptero/casa-img:latest
+    container_name: casaos
+    hostname: casaos
+    restart: unless-stopped
+    environment:
+      DOCKER_API_VERSION: "1.44"
+      PUID: "1000"
+      PGID: "1000"
+      DATA_ROOT: "%DATA_ROOT%"
+      REF_DOMAIN: "%REF_DOMAIN%"
+      REF_NET: "pcs"
+      REF_PORT: "443"
+      REF_SCHEME: "https"
+      user: "%DEFAULT_USER%"
+      default_pwd: "%DEFAULT_PASSWORD%"
+      public_ip: "%PUBLIC_IP%"
+      domain: "%REF_DOMAIN%"
+      PCS_DEFAULT_PASSWORD: "%DEFAULT_PASSWORD%"
+      PCS_DOMAIN: "%REF_DOMAIN%"
+      PCS_DATA_ROOT: "%DATA_ROOT%"
+      PCS_PUBLIC_IP: "%PUBLIC_IP%"
+      PCS_EMAIL: "%EMAIL%"
+    labels:
+      caddy: ":80"
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+    networks:
+      - pcs
+    volumes:
+      - type: bind
+        source: %DATA_ROOT%
+        target: /DATA
+        bind:
+          propagation: rshared
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: /dev
+        target: /dev
+
+networks:
+  pcs:
+    driver: bridge
+    name: pcs
+
+volumes:
+  caddy_data:
+  caddy_config:
