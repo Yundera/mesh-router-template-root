@@ -1,6 +1,6 @@
 services:
-  mesh-router:
-    image: rg.fr-par.scw.cloud/aptero/mesh-router:latest
+  mesh-router-tunnel:
+    image: rg.fr-par.scw.cloud/aptero/mesh-router-tunnel:latest
     container_name: mesh-router
     hostname: mesh-router
     restart: unless-stopped
@@ -27,6 +27,7 @@ services:
     environment:
       - PROVIDER=%PROVIDER_STR%
       - PUBLIC_IP=%PUBLIC_IP%
+      - TARGET_PORT=50443
     networks:
       - pcs
 
