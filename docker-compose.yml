@@ -1,81 +1,108 @@
+name: mesh
+
 services:
   mesh-router-tunnel:
-    image: rg.fr-par.scw.cloud/aptero/mesh-router-tunnel:latest
-    container_name: mesh-router
-    hostname: mesh-router
+    image: ghcr.io/yundera/mesh-router-tunnel:1.2.10
+    container_name: mesh-router-tunnel
+    hostname: mesh-router-tunnel
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
     sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv4.conf.all.src_valid_mark=1
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.src_valid_mark: "1"
     environment:
-      - PROVIDER=%PROVIDER_STR%
-      - ROUTING_TARGET_HOST=caddy
-      - ROUTING_TARGET_PORT=80
+      - PROVIDER=${PROVIDER}
+      - ROUTING_TARGET_HOST=mesh-router-caddy
+      # Dual-port support for transparent HTTP/HTTPS routing
+      - ROUTING_TARGET_PORT_HTTPS=443
+      - ROUTING_TARGET_PORT_HTTP=80
     networks:
-      - pcs
+      pcs: null
     depends_on:
-      - caddy
+      - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:latest
+    image: ghcr.io/yundera/mesh-router-agent:1.0.8
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     restart: unless-stopped
     environment:
-      - PROVIDER=%PROVIDER_STR%
-      - PUBLIC_IP=%PUBLIC_IP%
-      - TARGET_PORT=50443
-    networks:
-      - pcs
-
-  caddy:
-    image: lucaslorentz/caddy-docker-proxy:ci-alpine
-    container_name: caddy
-    hostname: caddy
-    restart: unless-stopped
+      - PROVIDER=${PROVIDER}
+      - PUBLIC_IP=${PUBLIC_IP}
+      # Dual-port support for transparent HTTP/HTTPS routing
+      - TARGET_PORT_HTTPS=443
+      - TARGET_PORT_HTTP=80
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      - CADDY_INGRESS_NETWORKS=pcs
+      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/certs:/app/data
     networks:
-      - pcs
+      pcs: null
+
+  mesh-router-caddy:
+    image: ghcr.io/yundera/mesh-router-caddy:1.1.1
+    container_name: mesh-router-caddy
+    hostname: mesh-router-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/certs:/certs:ro
+      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/caddy/data:/data
+      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/caddy/config:/config
+    environment:
+      - CADDY_DOCKER_CADDYFILE_PATH=/etc/caddy/Caddyfile
+      - CADDY_INGRESS_NETWORKS=pcs
+      - PCS_EMAIL=${EMAIL}
+      - DOMAIN=${DOMAIN}
+      - PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
+      - DEFAULT_SERVICE_HOST=${DEFAULT_SERVICE_HOST:-casaos}
+      - DEFAULT_SERVICE_PORT=${DEFAULT_SERVICE_PORT:-8080}
+    networks:
+      pcs: null
+    depends_on:
+      - mesh-router-agent
 
   casaos:
-    image: ghcr.io/yundera/casa-img:0.4.15-41
+    image: ghcr.io/yundera/casa-img:0.4.15-42
     container_name: casaos
     hostname: casaos
     restart: unless-stopped
     environment:
-      DOCKER_API_VERSION: "1.44"
       PUID: "1000"
       PGID: "1000"
-      DATA_ROOT: "%DATA_ROOT%"
-      REF_DOMAIN: "%REF_DOMAIN%"
+      USER: "${DEFAULT_USER:-admin}"
+      DATA_ROOT: "${DATA_ROOT:-/DATA}"
+      REF_DOMAIN: "${DOMAIN}"
       REF_NET: "pcs"
       REF_PORT: "443"
       REF_SCHEME: "https"
-      user: "%DEFAULT_USER%"
-      default_pwd: "%DEFAULT_PASSWORD%"
-      public_ip: "%PUBLIC_IP%"
-      domain: "%REF_DOMAIN%"
-      PCS_DEFAULT_PASSWORD: "%DEFAULT_PASSWORD%"
-      PCS_DOMAIN: "%REF_DOMAIN%"
-      PCS_DATA_ROOT: "%DATA_ROOT%"
-      PCS_PUBLIC_IP: "%PUBLIC_IP%"
-      PCS_EMAIL: "%EMAIL%"
-    labels:
-      caddy: ":80"
-      caddy.reverse_proxy: "{{upstreams 8080}}"
+      default_pwd: "${DEFAULT_PASSWORD}"
+      public_ip: "${PUBLIC_IP}"
+      domain: "${DOMAIN}"
+      PCS_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
+      PCS_DOMAIN: "${DOMAIN}"
+      PCS_DATA_ROOT: "${DATA_ROOT:-/DATA}"
+      PCS_PUBLIC_IP: "${PUBLIC_IP}"
+      PCS_EMAIL: "${EMAIL}"
+      APP_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
+      APP_DOMAIN: "${DOMAIN}"
+      APP_DATA_ROOT: "${DATA_ROOT:-/DATA}"
+      APP_PUBLIC_IP: "${PUBLIC_IP}"
+      APP_PUBLIC_IP_DASH: "${PUBLIC_IP_DASH}"
+      APP_EMAIL: "${EMAIL}"
+      APP_NET: pcs
     networks:
-      - pcs
+      pcs: null
+    labels:
+      caddy_0: ${DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 8080}}"
     volumes:
       - type: bind
-        source: %DATA_ROOT%
+        source: ${DATA_ROOT:-/DATA}
         target: /DATA
         bind:
           propagation: rshared
@@ -88,9 +115,28 @@ services:
 
 networks:
   pcs:
-    driver: bridge
     name: pcs
 
 volumes:
   caddy_data:
   caddy_config:
+
+x-casaos:
+  main: casaos
+  index: /
+  architectures:
+    - amd64
+    - arm64
+  author: Yundera
+  category: Utilities
+  title:
+    en_us: Mesh Router
+  description:
+    en_us: |
+      Yundera mesh networking stack for Personal Cloud Servers.
+
+      Includes WireGuard VPN tunneling, direct IP routing, Caddy reverse proxy
+      with automatic SSL, and CasaOS container management.
+  icon: https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/icon.png
+  tagline:
+    en_us: Secure mesh networking for your Personal Cloud Server

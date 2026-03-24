@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Mesh Router Installer
+# Usage: curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh | bash -s -- \
+#   --provider "https://nsl.sh/router/api,userid,signature" --domain alice.nsl.sh
+
+REPO_BASE="https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main"
+INSTALL_DIR="/DATA/AppData/casaos/apps/mesh"
+
+# Defaults
+PROVIDER=""
+DOMAIN=""
+PASSWORD=""
+PUBLIC_IP=""
+DATA_ROOT="/DATA"
+LOCAL_COMPOSE=""
+WINDOWS_MODE=false
+
+usage() {
+  cat <<EOF
+Yundera Mesh Router Installer
+
+Usage:
+  install.sh --provider <provider-string> --domain <domain> [options]
+
+Required:
+  --provider    Provider connection string (backend_url,userid,signature)
+  --domain      Your domain (e.g. alice.nsl.sh)
+
+Options:
+  --password    Default password (auto-generated if omitted)
+  --public-ip   Server public IP (auto-detected if omitted)
+  --data-root   Data storage path (default: /DATA)
+  --local       Path to local docker-compose.yml (skip CDN download)
+  --windows     Windows/WSL mode (DATA_ROOT=/c/DATA, user 0:0, no rshared)
+  --help        Show this help
+EOF
+  exit 1
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --provider)  PROVIDER="$2"; shift 2 ;;
+    --domain)    DOMAIN="$2"; shift 2 ;;
+    --password)  PASSWORD="$2"; shift 2 ;;
+    --public-ip) PUBLIC_IP="$2"; shift 2 ;;
+    --data-root) DATA_ROOT="$2"; shift 2 ;;
+    --local)     LOCAL_COMPOSE="$2"; shift 2 ;;
+    --windows)   WINDOWS_MODE=true; shift ;;
+    --help)      usage ;;
+    *)           echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+# Validate required params
+if [[ -z "$PROVIDER" ]]; then
+  echo "Error: --provider is required"
+  usage
+fi
+if [[ -z "$DOMAIN" ]]; then
+  echo "Error: --domain is required"
+  usage
+fi
+
+echo "=== Yundera Mesh Router Installer ==="
+echo ""
+
+# 1. Check/install Docker
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+  echo "[OK] Docker is installed"
+else
+  echo "[..] Docker not found, installing..."
+  curl -fsSL https://get.docker.com | sh
+  echo "[OK] Docker installed"
+fi
+
+# 2. Auto-detect public IP if not provided
+if [[ -z "$PUBLIC_IP" ]]; then
+  echo "[..] Detecting public IP..."
+  PUBLIC_IP=$(curl -4s --max-time 5 ifconfig.me 2>/dev/null || echo "")
+  if [[ -n "$PUBLIC_IP" ]]; then
+    echo "[OK] Public IP: $PUBLIC_IP"
+  else
+    echo "[!!] Could not detect public IP (direct routing via agent will be disabled)"
+  fi
+else
+  echo "[OK] Public IP: $PUBLIC_IP"
+fi
+
+# 3. Generate password if not provided
+if [[ -z "$PASSWORD" ]]; then
+  PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
+  echo "[OK] Generated password: $PASSWORD"
+else
+  echo "[OK] Using provided password"
+fi
+
+# 4. Windows/WSL mode
+if [[ "$WINDOWS_MODE" == true ]]; then
+  echo "[!!] Windows mode enabled"
+  DATA_ROOT="/c/DATA"
+  INSTALL_DIR="/c/DATA/AppData/casaos/apps/mesh"
+fi
+
+# 5. Compute derived values
+PUBLIC_IP_DASH=$(echo "$PUBLIC_IP" | tr '.:' '-')
+EMAIL="admin@${DOMAIN}"
+
+# 7. Create directories
+echo "[..] Creating directories..."
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$DATA_ROOT"
+mkdir -p "$DATA_ROOT/AppData/yundera/data/certs"
+mkdir -p "$DATA_ROOT/AppData/yundera/data/caddy/data"
+mkdir -p "$DATA_ROOT/AppData/yundera/data/caddy/config"
+echo "[OK] Install dir: $INSTALL_DIR"
+
+# 8. Get docker-compose.yml
+if [[ -n "$LOCAL_COMPOSE" ]]; then
+  echo "[..] Copying local docker-compose.yml..."
+  cp "$LOCAL_COMPOSE" "$INSTALL_DIR/docker-compose.yml"
+  echo "[OK] docker-compose.yml copied from $LOCAL_COMPOSE"
+else
+  echo "[..] Downloading docker-compose.yml..."
+  curl -fsSL "$REPO_BASE/docker-compose.yml" -o "$INSTALL_DIR/docker-compose.yml"
+  echo "[OK] docker-compose.yml downloaded"
+fi
+
+# 9. Patch docker-compose.yml for Windows mode
+if [[ "$WINDOWS_MODE" == true ]]; then
+  echo "[..] Patching docker-compose for Windows..."
+  # Remove rshared propagation (not supported on Docker Desktop)
+  sed -i '/bind:/,/propagation: rshared/d' "$INSTALL_DIR/docker-compose.yml"
+  # Add user: 0:0 to casaos service (Docker Desktop runs as root)
+  sed -i '/container_name: casaos/a\    user: "0:0"' "$INSTALL_DIR/docker-compose.yml"
+  echo "[OK] Windows patches applied"
+fi
+
+# 10. Write .env
+cat > "$INSTALL_DIR/.env" <<EOF
+PROVIDER=${PROVIDER}
+DOMAIN=${DOMAIN}
+PUBLIC_IP=${PUBLIC_IP}
+PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
+DATA_ROOT=${DATA_ROOT}
+DEFAULT_USER=admin
+DEFAULT_PASSWORD=${PASSWORD}
+EMAIL=${EMAIL}
+DEFAULT_SERVICE_HOST=casaos
+DEFAULT_SERVICE_PORT=8080
+EOF
+echo "[OK] .env written"
+
+# 11. Start containers
+echo "[..] Starting containers..."
+cd "$INSTALL_DIR"
+docker compose up -d
+
+echo ""
+echo "=== Installation complete ==="
+echo ""
+echo "  Domain:    https://${DOMAIN}"
+echo "  Password:  ${PASSWORD}"
+echo "  Install:   ${INSTALL_DIR}"
+echo ""
+echo "To update, re-run this command."

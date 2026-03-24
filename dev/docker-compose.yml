@@ -1,0 +1,41 @@
+services:
+  # Bare Ubuntu container to test install.sh
+  # Docker socket mounted so the script can actually run docker compose
+  install-test:
+    build: .
+    container_name: mesh-install-test
+    hostname: install-test
+    env_file: .env
+    volumes:
+      # Mount install.sh and docker-compose template from parent (read-only)
+      - ../install.sh:/tmp/install.sh:ro
+      - ../docker-compose.yml:/tmp/docker-compose.yml:ro
+
+      # Docker socket so "docker compose up -d" works inside the container
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    command:
+      - bash
+      - -c
+      - |
+        echo '=== Mesh Router Install Script Test Environment ==='
+        echo ''
+        echo 'Env loaded from .env:'
+        echo "  PROVIDER=$${PROVIDER:0:30}..."
+        echo "  DOMAIN=$$DOMAIN"
+        echo "  PASSWORD=$$PASSWORD"
+        echo ''
+
+        # Patch: strip rshared bind propagation (not supported on WSL/Docker-in-Docker)
+        sed '/bind:/,/propagation: rshared/d' /tmp/docker-compose.yml > /tmp/docker-compose-dev.yml
+        echo '[dev] Patched docker-compose: removed rshared propagation for WSL compatibility'
+        echo ''
+
+        echo 'Run the install script with staging credentials:'
+        echo "  bash /tmp/install.sh --provider \"$$PROVIDER\" --domain \"$$DOMAIN\" --password \"$$PASSWORD\" --local /tmp/docker-compose-dev.yml"
+        echo ''
+        echo 'Inspect results:'
+        echo '  cat /DATA/AppData/casaos/apps/mesh/.env'
+        echo '  cat /DATA/AppData/casaos/apps/mesh/docker-compose.yml'
+        echo ''
+        tail -f /dev/null
