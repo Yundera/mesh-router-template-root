@@ -124,6 +124,11 @@ volumes:
 x-casaos:
   main: casaos
   index: /
+  hostname: ${DOMAIN}
+  scheme: https
+  store_app_id: mesh
+  is_uncontrolled: false
+  port_map: ""
   architectures:
     - amd64
     - arm64

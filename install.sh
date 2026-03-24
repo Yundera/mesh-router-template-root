@@ -98,10 +98,18 @@ else
 fi
 
 # 4. Windows/WSL mode
+# On Windows/WSL, host paths use /c/DATA but CasaOS inside the container sees /DATA.
+# We keep INSTALL_DIR at /DATA/... so docker compose labels match what CasaOS expects,
+# but create a symlink from /DATA -> /c/DATA so files are on the Windows filesystem.
 if [[ "$WINDOWS_MODE" == true ]]; then
   echo "[!!] Windows mode enabled"
   DATA_ROOT="/c/DATA"
-  INSTALL_DIR="/c/DATA/AppData/casaos/apps/mesh"
+  mkdir -p "$DATA_ROOT"
+  if [[ ! -e /DATA ]]; then
+    ln -sf /c/DATA /DATA
+    echo "[OK] Symlinked /DATA -> /c/DATA"
+  fi
+  # INSTALL_DIR stays at /DATA/... path so compose labels match CasaOS
 fi
 
 # 5. Compute derived values
