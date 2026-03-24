@@ -71,8 +71,8 @@ services:
     hostname: casaos
     restart: unless-stopped
     environment:
-      PUID: "1000"
-      PGID: "1000"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
       USER: "${DEFAULT_USER:-admin}"
       DATA_ROOT: "${DATA_ROOT:-/DATA}"
       REF_DOMAIN: "${DOMAIN}"

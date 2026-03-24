@@ -16,6 +16,8 @@ PUBLIC_IP=""
 DATA_ROOT="/DATA"
 LOCAL_COMPOSE=""
 WINDOWS_MODE=false
+PUID="1000"
+PGID="1000"
 
 usage() {
   cat <<EOF
@@ -104,6 +106,8 @@ fi
 if [[ "$WINDOWS_MODE" == true ]]; then
   echo "[!!] Windows mode enabled"
   DATA_ROOT="/c/DATA"
+  PUID="0"
+  PGID="0"
   mkdir -p "$DATA_ROOT"
   if [[ ! -e /DATA ]]; then
     ln -sf /c/DATA /DATA
@@ -141,8 +145,6 @@ if [[ "$WINDOWS_MODE" == true ]]; then
   echo "[..] Patching docker-compose for Windows..."
   # Remove rshared propagation (not supported on Docker Desktop)
   sed -i '/bind:/,/propagation: rshared/d' "$INSTALL_DIR/docker-compose.yml"
-  # Add user: 0:0 to casaos service (Docker Desktop runs as root)
-  sed -i '/container_name: casaos/a\    user: "0:0"' "$INSTALL_DIR/docker-compose.yml"
   echo "[OK] Windows patches applied"
 fi
 
@@ -158,6 +160,8 @@ DEFAULT_PASSWORD=${PASSWORD}
 EMAIL=${EMAIL}
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
+PUID=${PUID}
+PGID=${PGID}
 EOF
 echo "[OK] .env written"
 

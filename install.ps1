@@ -91,8 +91,6 @@ Write-Host "[..] Patching docker-compose for Windows..."
 $composeContent = Get-Content "$composePath\docker-compose.yml" -Raw
 # Remove rshared propagation (not supported on Docker Desktop)
 $composeContent = $composeContent -replace '(?ms)\s+bind:\s+propagation: rshared', ''
-# Add user: 0:0 to casaos service
-$composeContent = $composeContent -replace '(container_name: casaos)', "`$1`n    user: `"0:0`""
 Set-Content -Path "$composePath\docker-compose.yml" -Value $composeContent -NoNewline
 Write-Host "[OK] Windows patches applied" -ForegroundColor Green
 
@@ -109,6 +107,8 @@ DEFAULT_PASSWORD=$Password
 EMAIL=$Email
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
+PUID=0
+PGID=0
 "@
 Set-Content -Path "$composePath\.env" -Value $envContent -NoNewline
 Write-Host "[OK] .env written" -ForegroundColor Green
