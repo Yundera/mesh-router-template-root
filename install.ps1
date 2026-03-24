@@ -26,7 +26,12 @@ try {
     docker compose version | Out-Null
     Write-Host "[OK] Docker is installed" -ForegroundColor Green
 } catch {
-    Write-Host "[!!] Docker not found. Please install Docker Desktop from https://www.docker.com/products/docker-desktop/" -ForegroundColor Red
+    Write-Host "[!!] Docker not found." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "     Docker Desktop is required for Windows. NSL Router and CasaOS" -ForegroundColor Red
+    Write-Host "     heavily rely on containers to work." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "     Install Docker Desktop: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
     Write-Host "     After installing, restart this script." -ForegroundColor Red
     exit 1
 }
@@ -35,7 +40,7 @@ try {
 if (-not $PublicIp) {
     Write-Host "[..] Detecting public IP..."
     try {
-        $PublicIp = (Invoke-RestMethod -Uri "https://ifconfig.me" -TimeoutSec 5).Trim()
+        $PublicIp = (Invoke-RestMethod -Uri "https://ifconfig.me/ip" -UserAgent "curl" -TimeoutSec 5).Trim()
         Write-Host "[OK] Public IP: $PublicIp" -ForegroundColor Green
     } catch {
         $PublicIp = ""
