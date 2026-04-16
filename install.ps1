@@ -9,7 +9,6 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Domain,
 
-    [string]$Password,
     [string]$PublicIp,
     [string]$DataRoot = "/c/DATA"
 )
@@ -50,19 +49,11 @@ if (-not $PublicIp) {
     Write-Host "[OK] Public IP: $PublicIp" -ForegroundColor Green
 }
 
-# 3. Generate password if not provided
-if (-not $Password) {
-    $Password = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
-    Write-Host "[OK] Generated password: $Password" -ForegroundColor Green
-} else {
-    Write-Host "[OK] Using provided password" -ForegroundColor Green
-}
-
-# 4. Compute derived values
+# 3. Compute derived values
 $PublicIpDash = $PublicIp -replace '[.:]', '-'
 $Email = "admin@$Domain"
 
-# 5. Create directories (via WSL since paths are Linux-style)
+# 4. Create directories (via WSL since paths are Linux-style)
 Write-Host "[..] Creating directories..."
 $dirs = @(
     $InstallDir,
@@ -80,13 +71,13 @@ foreach ($dir in $dirs) {
 }
 Write-Host "[OK] Install dir: $InstallDir" -ForegroundColor Green
 
-# 6. Download docker-compose.yml
+# 5. Download docker-compose.yml
 Write-Host "[..] Downloading docker-compose.yml..."
 $composePath = ($InstallDir -replace '^/c/', 'C:\') -replace '/', '\'
 Invoke-RestMethod -Uri "$RepoBase/docker-compose.yml" -OutFile "$composePath\docker-compose.yml"
 Write-Host "[OK] docker-compose.yml downloaded" -ForegroundColor Green
 
-# 7. Patch docker-compose.yml for Windows
+# 6. Patch docker-compose.yml for Windows
 Write-Host "[..] Patching docker-compose for Windows..."
 $composeContent = Get-Content "$composePath\docker-compose.yml" -Raw
 # Remove rshared propagation (not supported on Docker Desktop)
@@ -94,7 +85,7 @@ $composeContent = $composeContent -replace '(?ms)\s+bind:\s+propagation: rshared
 Set-Content -Path "$composePath\docker-compose.yml" -Value $composeContent -NoNewline
 Write-Host "[OK] Windows patches applied" -ForegroundColor Green
 
-# 8. Write .env
+# 7. Write .env
 Write-Host "[..] Writing .env..."
 $envContent = @"
 PROVIDER=$Provider
@@ -102,8 +93,6 @@ DOMAIN=$Domain
 PUBLIC_IP=$PublicIp
 PUBLIC_IP_DASH=$PublicIpDash
 DATA_ROOT=$DataRoot
-DEFAULT_USER=admin
-DEFAULT_PASSWORD=$Password
 EMAIL=$Email
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
@@ -113,7 +102,7 @@ PGID=0
 Set-Content -Path "$composePath\.env" -Value $envContent -NoNewline
 Write-Host "[OK] .env written" -ForegroundColor Green
 
-# 9. Start containers
+# 8. Start containers
 Write-Host "[..] Starting containers..."
 Push-Location $composePath
 docker compose up -d
@@ -123,7 +112,7 @@ Write-Host ""
 Write-Host "=== Installation complete ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Domain:    https://$Domain" -ForegroundColor White
-Write-Host "  Password:  $Password" -ForegroundColor White
 Write-Host "  Install:   $InstallDir" -ForegroundColor White
 Write-Host ""
+Write-Host "Open https://$Domain in your browser to complete CasaOS first-run setup." -ForegroundColor Gray
 Write-Host "To update, re-run this command." -ForegroundColor Gray

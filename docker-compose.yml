@@ -24,7 +24,7 @@ services:
       - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:1.0.8
+    image: ghcr.io/yundera/mesh-router-agent:1.0.10
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     restart: unless-stopped
@@ -40,7 +40,7 @@ services:
       pcs: null
 
   mesh-router-caddy:
-    image: ghcr.io/yundera/mesh-router-caddy:1.1.1
+    image: ghcr.io/yundera/mesh-router-caddy:1.2.3
     container_name: mesh-router-caddy
     hostname: mesh-router-caddy
     restart: unless-stopped
@@ -73,21 +73,17 @@ services:
     environment:
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
-      USER: "${DEFAULT_USER:-admin}"
       DATA_ROOT: "${DATA_ROOT:-/DATA}"
       REF_DOMAIN: "${DOMAIN}"
       REF_NET: "pcs"
       REF_PORT: "443"
       REF_SCHEME: "https"
-      default_pwd: "${DEFAULT_PASSWORD}"
       public_ip: "${PUBLIC_IP}"
       domain: "${DOMAIN}"
-      PCS_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
       PCS_DOMAIN: "${DOMAIN}"
       PCS_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       PCS_PUBLIC_IP: "${PUBLIC_IP}"
       PCS_EMAIL: "${EMAIL}"
-      APP_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
       APP_DOMAIN: "${DOMAIN}"
       APP_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       APP_PUBLIC_IP: "${PUBLIC_IP}"

@@ -23,7 +23,6 @@ services:
         echo 'Env loaded from .env:'
         echo "  PROVIDER=$${PROVIDER:0:30}..."
         echo "  DOMAIN=$$DOMAIN"
-        echo "  PASSWORD=$$PASSWORD"
         echo ''
 
         # Patch: strip rshared bind propagation (not supported on WSL/Docker-in-Docker)
@@ -32,7 +31,7 @@ services:
         echo ''
 
         echo 'Run the install script with staging credentials:'
-        echo "  bash /tmp/install.sh --provider \"$$PROVIDER\" --domain \"$$DOMAIN\" --password \"$$PASSWORD\" --local /tmp/docker-compose-dev.yml"
+        echo "  bash /tmp/install.sh --provider \"$$PROVIDER\" --domain \"$$DOMAIN\" --local /tmp/docker-compose-dev.yml"
         echo ''
         echo 'Inspect results:'
         echo '  cat /DATA/AppData/casaos/apps/mesh/.env'
