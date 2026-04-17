@@ -83,6 +83,33 @@ const userConfig = template
   .replace('%EMAIL%', userEmail);
 ```
 
+## Publishing updates
+
+`install.sh` is distributed via jsDelivr and pulls `docker-compose.yml` from the same CDN on every run:
+
+```
+https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh
+https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml
+```
+
+Because the URL pins `@main` (a floating ref), jsDelivr caches the resolved content for up to 12 hours. After pushing new image versions to `main`, users will keep getting the old file until the cache expires — **or** you explicitly purge it:
+
+```bash
+curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml"
+curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh"
+```
+
+Verify afterwards:
+
+```bash
+curl -fsSL "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml" | grep image:
+```
+
+Notes:
+- Purge only works once commits are actually pushed to `origin/main`. It re-resolves `@main` against GitHub, so nothing to fetch = nothing changes.
+- Pinned refs (`@1.2.3`, `@<sha>`) are immutable and don't need purging.
+- Purge is rate-limited; don't script it in a loop.
+
 ## License
 
 MIT

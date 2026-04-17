@@ -133,7 +133,7 @@ if [[ -f "$INSTALL_DIR/.env" ]]; then
   DEFAULT_PASSWORD=$(grep -E '^DEFAULT_PASSWORD=' "$INSTALL_DIR/.env" | head -n1 | cut -d= -f2- || true)
 fi
 if [[ -z "$DEFAULT_PASSWORD" ]]; then
-  DEFAULT_PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)
+  DEFAULT_PASSWORD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
 fi
 
 # 6. Get docker-compose.yml
