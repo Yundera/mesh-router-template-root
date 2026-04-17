@@ -125,6 +125,17 @@ mkdir -p "$DATA_ROOT/AppData/yundera/data/caddy/data"
 mkdir -p "$DATA_ROOT/AppData/yundera/data/caddy/config"
 echo "[OK] Install dir: $INSTALL_DIR"
 
+# Seed a platform secret consumed by app-store apps via $APP_DEFAULT_PASSWORD /
+# $PCS_DEFAULT_PASSWORD. Preserve across reruns — regenerating would invalidate
+# every app's DB password and admin token.
+DEFAULT_PASSWORD=""
+if [[ -f "$INSTALL_DIR/.env" ]]; then
+  DEFAULT_PASSWORD=$(grep -E '^DEFAULT_PASSWORD=' "$INSTALL_DIR/.env" | head -n1 | cut -d= -f2- || true)
+fi
+if [[ -z "$DEFAULT_PASSWORD" ]]; then
+  DEFAULT_PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)
+fi
+
 # 6. Get docker-compose.yml
 if [[ -n "$LOCAL_COMPOSE" ]]; then
   echo "[..] Copying local docker-compose.yml..."
@@ -151,12 +162,14 @@ DOMAIN=${DOMAIN}
 PUBLIC_IP=${PUBLIC_IP}
 PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
 DATA_ROOT=${DATA_ROOT}
+DEFAULT_PASSWORD=${DEFAULT_PASSWORD}
 EMAIL=${EMAIL}
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
 PUID=${PUID}
 PGID=${PGID}
 EOF
+chmod 600 "$INSTALL_DIR/.env"
 echo "[OK] .env written"
 
 # 9. Start containers

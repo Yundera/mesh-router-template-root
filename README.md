@@ -14,6 +14,7 @@ This repository provides a template `docker-compose.yml` file used by mesh-dashb
 | `%PUBLIC_IP%` | Instance public IP address | `203.0.113.5` |
 | `%REF_DOMAIN%` | User's full domain | `username.nsl.sh` |
 | `%DATA_ROOT%` | Data storage path | `/data` |
+| `%DEFAULT_PASSWORD%` | Platform secret consumed by app-store apps via `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD` | `generated-password` |
 | `%EMAIL%` | User's email address | `user@example.com` |
 
 ## Services Included
@@ -47,8 +48,8 @@ Reverse proxy with automatic SSL certificate management.
 Container management UI for the PCS instance.
 
 - Web-based Docker management
-- Uses `%REF_DOMAIN%`, `%DATA_ROOT%`
-- First-run account setup handled by CasaOS itself
+- Uses `%REF_DOMAIN%`, `%DATA_ROOT%`, `%DEFAULT_PASSWORD%`
+- First-run account setup handled by CasaOS itself; `DEFAULT_PASSWORD` is the platform secret exposed to installed apps (not the CasaOS login)
 - Accessible via the user's domain
 
 ## Network Configuration
@@ -78,6 +79,7 @@ const userConfig = template
   .replace('%PUBLIC_IP%', userPublicIp)
   .replace('%REF_DOMAIN%', `${username}.${serverDomain}`)
   .replace('%DATA_ROOT%', '/data')
+  .replace('%DEFAULT_PASSWORD%', generatedPassword)
   .replace('%EMAIL%', userEmail);
 ```
 

@@ -53,6 +53,18 @@ if (-not $PublicIp) {
 $PublicIpDash = $PublicIp -replace '[.:]', '-'
 $Email = "admin@$Domain"
 
+# Seed a platform secret consumed by app-store apps via $APP_DEFAULT_PASSWORD /
+# $PCS_DEFAULT_PASSWORD. Preserve across reruns.
+$envPath = (($InstallDir -replace '^/c/', 'C:\') -replace '/', '\') + '\.env'
+$DefaultPassword = ""
+if (Test-Path $envPath) {
+    $existing = Select-String -Path $envPath -Pattern '^DEFAULT_PASSWORD=(.*)$' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($existing) { $DefaultPassword = $existing.Matches[0].Groups[1].Value }
+}
+if (-not $DefaultPassword) {
+    $DefaultPassword = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
+}
+
 # 4. Create directories (via WSL since paths are Linux-style)
 Write-Host "[..] Creating directories..."
 $dirs = @(
@@ -93,6 +105,7 @@ DOMAIN=$Domain
 PUBLIC_IP=$PublicIp
 PUBLIC_IP_DASH=$PublicIpDash
 DATA_ROOT=$DataRoot
+DEFAULT_PASSWORD=$DefaultPassword
 EMAIL=$Email
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
