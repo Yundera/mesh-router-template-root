@@ -24,7 +24,7 @@ services:
       - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:1.0.10
+    image: ghcr.io/yundera/mesh-router-agent:1.0.11
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     restart: unless-stopped
@@ -35,7 +35,7 @@ services:
       - TARGET_PORT_HTTPS=443
       - TARGET_PORT_HTTP=80
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/certs:/app/data
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/certs:/app/data
     networks:
       pcs: null
 
@@ -49,9 +49,9 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/certs:/certs:ro
-      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/caddy/data:/data
-      - ${DATA_ROOT:-/DATA}/AppData/yundera/data/caddy/config:/config
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/certs:/certs:ro
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/caddy/data:/data
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/caddy/config:/config
     environment:
       - CADDY_DOCKER_CADDYFILE_PATH=/etc/caddy/Caddyfile
       - CADDY_INGRESS_NETWORKS=pcs
@@ -120,21 +120,18 @@ volumes:
 x-casaos:
   main: casaos
   index: /
-  hostname: ${DOMAIN}
   scheme: https
   store_app_id: mesh
-  is_uncontrolled: false
-  port_map: ""
   architectures:
     - amd64
     - arm64
-  author: Yundera
+  author: Mesh Router NSL.sh
   category: Utilities
   title:
     en_us: Mesh Router
   description:
     en_us: |
-      Yundera mesh networking stack for Personal Cloud Servers.
+      Mesh router networking stack for Personal Cloud Servers. NSL.sh
 
       Includes WireGuard VPN tunneling, direct IP routing, Caddy reverse proxy
       with automatic SSL, and CasaOS container management.
