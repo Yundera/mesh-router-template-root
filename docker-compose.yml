@@ -124,6 +124,7 @@ x-casaos:
   main: casaos
   index: /
   scheme: https
+  is_uncontrolled: false
   store_app_id: mesh
   architectures:
     - amd64
