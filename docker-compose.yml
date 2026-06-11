@@ -65,6 +65,23 @@ services:
     depends_on:
       - mesh-router-agent
 
+  smtp:
+    image: ghcr.io/yundera/mail-gateway:1.0.4
+    container_name: smtp
+    hostname: smtp
+    restart: unless-stopped
+    environment:
+      # The gateway parses the provider string: it accepts SMTP from apps on the pcs network
+      # (host "smtp") and POSTs each email to {backend_url}/router/api/email/send with
+      # "userid:signature" as the Bearer credential. mesh-router-backend verifies it and sends
+      # from <app>.<user-domain>@<server-domain> (e.g. vaultwarden.alice@nsl.sh).
+      - RELAY_CREDENTIAL=${PROVIDER}
+      - SMTP_PORT=587
+    expose:
+      - "587"
+    networks:
+      pcs: null
+
   casaos:
     image: ghcr.io/yundera/casa-img:0.4.15-44
     container_name: casaos
