@@ -39,6 +39,9 @@ get_env_value() {
 }
 
 # Set KEY=VALUE in the stack .env (atomic: temp file + mv, preserves 600).
+# The file is owned by PUID:PGID (the CasaOS uid) so CasaOS can read it and
+# group the stack in its dashboard — root:root 0600 would be unreadable to it,
+# leaving the mesh containers shown as individual "External Apps".
 set_env_value() {
     local key="$1" value="$2" tmp
     tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
@@ -47,5 +50,6 @@ set_env_value() {
     fi
     printf '%s=%s\n' "$key" "$value" >> "$tmp"
     chmod 600 "$tmp"
+    chown "${PUID:-1000}:${PGID:-1000}" "$tmp" 2>/dev/null || true
     mv "$tmp" "$ENV_FILE"
 }

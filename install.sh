@@ -220,6 +220,7 @@ PGID=${PGID}
 MESH_AUTO_UPDATE=false
 EOF
   chmod 600 "$APP_DIR/.env"
+  chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
   echo "[OK] .env written"
 
   echo "[..] Starting containers..."
@@ -254,6 +255,9 @@ env_set() {
   fi
   printf '%s=%s\n' "$key" "$value" >> "$tmp"
   chmod 600 "$tmp"
+  # Own the .env by PUID:PGID so CasaOS (uid 1000) can read it and group the
+  # stack in its dashboard instead of showing it as individual "External Apps".
+  chown "${PUID}:${PGID}" "$tmp" 2>/dev/null || true
   mv "$tmp" "$ENV_FILE"
 }
 env_set PROVIDER "$PROVIDER"

@@ -139,7 +139,11 @@ volumes:
 
 x-casaos:
   main: casaos
-  index: /
+  # Open the NSL.sh management dashboard (not the local CasaOS). The UI builds
+  # the tile URL as ${scheme}://${hostname}${index}; without hostname it would
+  # fall back to this PCS's own domain.
+  hostname: nsl.sh
+  index: /dashboard
   scheme: https
   is_uncontrolled: false
   store_app_id: mesh
