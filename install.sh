@@ -240,16 +240,28 @@ fi
 # ensure-env-valid backfills DEFAULT_PASSWORD, service host/port, PUID/PGID, and
 # EMAIL; ensure-public-ip detects PUBLIC_IP; ensure-template-sync owns compose.
 # ---------------------------------------------------------------------------
-echo "[..] Writing .env..."
-{
-  echo "PROVIDER=${PROVIDER}"
-  echo "DOMAIN=${DOMAIN}"
-  [[ -n "$EMAIL_ARG" ]] && echo "EMAIL=${EMAIL_ARG}"
-  [[ -n "$PUBLIC_IP" ]] && echo "PUBLIC_IP=${PUBLIC_IP}"
-  echo "DATA_ROOT=${DATA_ROOT}"
-  echo "MESH_AUTO_UPDATE=${MESH_AUTO_UPDATE}"
-} > "$APP_DIR/.env"
-chmod 600 "$APP_DIR/.env"
+echo "[..] Writing .env (preserving existing keys on re-run)..."
+ENV_FILE="$APP_DIR/.env"
+env_set() {
+  # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
+  # is what keeps DEFAULT_PASSWORD (and anything ensure-env-valid backfilled)
+  # intact when the installer is re-run to update — regenerating the platform
+  # secret would invalidate every app's DB password and admin token.
+  local key="$1" value="$2" tmp
+  tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
+  if [[ -f "$ENV_FILE" ]]; then
+    grep -v -E "^${key}=" "$ENV_FILE" > "$tmp" || true
+  fi
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+env_set PROVIDER "$PROVIDER"
+env_set DOMAIN "$DOMAIN"
+env_set DATA_ROOT "$DATA_ROOT"
+env_set MESH_AUTO_UPDATE "$MESH_AUTO_UPDATE"
+[[ -n "$EMAIL_ARG" ]] && env_set EMAIL "$EMAIL_ARG"
+[[ -n "$PUBLIC_IP" ]] && env_set PUBLIC_IP "$PUBLIC_IP"
 echo "[OK] .env written"
 
 echo ""

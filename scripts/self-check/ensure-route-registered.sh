@@ -23,11 +23,16 @@ if [ -z "$BACKEND_URL" ] || [ -z "$USER_ID" ]; then
 fi
 BACKEND_URL="${BACKEND_URL%/}"
 
+# The PROVIDER backend URL is a bare origin (e.g. https://nsl.sh); the REST API
+# is mounted under /router/api — the same prefix the agent/tunnel append (see
+# mesh-router-agent IpRegistrar: `${backendUrl}/router/api/routes/...`).
+API_URL="$BACKEND_URL/router/api"
+
 # Routes were registered seconds ago at best — give the agent/tunnel a moment
 # after a stack restart before declaring failure.
 RESPONSE=""
 for attempt in 1 2 3; do
-    RESPONSE=$(curl -fsS --max-time 15 "$BACKEND_URL/routes/$USER_ID" 2>&1) && break
+    RESPONSE=$(curl -fsS --max-time 15 "$API_URL/routes/$USER_ID" 2>&1) && break
     if [ "$attempt" -lt 3 ]; then
         sleep 20
     else
