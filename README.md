@@ -167,6 +167,20 @@ tail -f /DATA/AppData/mesh/log/mesh.log
 Script updates take effect one run late by design: the sync copies new scripts during run N,
 the new versions execute on run N+1.
 
+## Uninstall
+
+```bash
+curl -fsSL https://nsl.sh/dashboard/uninstall.sh | sudo bash -s -- --yes
+# or from the synced template already on the box:
+sudo bash /DATA/AppData/mesh/template/uninstall.sh
+```
+
+`uninstall.sh` stops and removes the `mesh` stack (tunnel, agent, caddy, smtp, casaos) and its
+caddy volumes, removes the nightly self-check cron entry and `/etc/logrotate.d/mesh-router`, and
+deletes the two mesh folders (`/DATA/AppData/casaos/apps/mesh` and `${DATA_ROOT}/AppData/mesh`).
+It never touches Docker, user-installed apps, or user data (`/DATA/Documents`, `/DATA/Downloads`,
+`/DATA/Media`, other `/DATA/AppData` apps). Run without `--yes` for an interactive confirmation.
+
 ## License
 
 MIT
