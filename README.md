@@ -85,30 +85,87 @@ const userConfig = template
 
 ## Publishing updates
 
-`install.sh` is distributed via jsDelivr and pulls `docker-compose.yml` from the same CDN on every run:
+The dashboard's install command curls `install.sh` from jsDelivr:
 
 ```
 https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh
-https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml
 ```
 
-Because the URL pins `@main` (a floating ref), jsDelivr caches the resolved content for up to 12 hours. After pushing new image versions to `main`, users will keep getting the old file until the cache expires — **or** you explicitly purge it:
+`install.sh` no longer fetches individual files from the CDN. It downloads the whole repo as a `main` tarball from GitHub, lays down `docker-compose.yml` + `scripts/`, then runs the self-check. The nightly self-check (`ensure-template-sync.sh`) re-syncs from the **same** GitHub tarball:
+
+```
+https://github.com/yundera/mesh-router-template-root/archive/refs/heads/main.tar.gz
+```
+
+GitHub serves that archive near-realtime (no 12-hour CDN cache), so pushes to `main` reach existing installs — compose **and** scripts — within minutes, no purge required.
+
+Only `install.sh` itself sits behind jsDelivr's floating-`@main` cache (up to 12h). After changing `install.sh`, purge it so new installs pick it up:
 
 ```bash
-curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml"
 curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh"
-```
-
-Verify afterwards:
-
-```bash
-curl -fsSL "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/docker-compose.yml" | grep image:
 ```
 
 Notes:
 - Purge only works once commits are actually pushed to `origin/main`. It re-resolves `@main` against GitHub, so nothing to fetch = nothing changes.
 - Pinned refs (`@1.2.3`, `@<sha>`) are immutable and don't need purging.
 - Purge is rate-limited; don't script it in a loop.
+
+## Self-check & auto-update (Linux only)
+
+`install.sh` is thin: it lays down the template (`docker-compose.yml` + `scripts/`) and a
+minimal `.env`, then runs `self-check.sh --display`. The self-check is an ordered registry of
+idempotent `ensure-*.sh` scripts that install Docker, backfill `.env`, sync the template, pull
+images, bring the stack up, and verify routing — shown live during install as a per-step
+checklist. The same self-check then runs nightly via cron. Windows (`--windows`) installs skip
+it entirely — the stack works but stays manual-update.
+
+### Layout
+
+```
+/DATA/AppData/casaos/apps/mesh/   # CasaOS-visible surface only
+├── docker-compose.yml            # template-owned: overwritten by auto-update
+└── .env                          # user-owned: never touched by auto-update
+
+${DATA_ROOT}/AppData/mesh/
+├── template/                     # pristine synced copy of this repo
+├── scripts/                      # live scripts (self-check.sh, library/, self-check/)
+├── log/mesh.log                  # self-check log (logrotate: daily, 7 days)
+└── data/                         # runtime state: certs, caddy
+```
+
+### What runs (in order, from `scripts/self-check/scripts-config.txt`)
+
+1. **Self-maintenance** — scripts executable, nightly cron entry, logrotate config
+2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
+3. **Template sync** — downloads this repo's `main` tarball, atomically swaps `template/`,
+   copies `docker-compose.yml` and `scripts/` to their live locations (auto-update)
+4. **Stack** — re-detect public IP (updates `.env` if changed), `docker compose pull`, `up -d`
+5. **Verification** (check-only) — routes registered with the backend, own domain reachable
+   end-to-end (`curl -H 'X-Mesh-Trace: 1' https://$DOMAIN/`)
+
+Exit code 0 only if every script succeeded; failures never abort the run early.
+
+### Configuration (`.env` keys)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
+| `MESH_SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
+| `MESH_TEMPLATE_URL` | repo `main` tarball | Override the sync source (dev/testing) |
+
+Because the compose file is template-owned, **hand-edits to the live `docker-compose.yml` are
+lost on the next sync** — pin with `MESH_AUTO_UPDATE=false` if you need local changes.
+
+### Manual run
+
+```bash
+sudo bash /DATA/AppData/mesh/scripts/self-check.sh            # streams full output
+sudo bash /DATA/AppData/mesh/scripts/self-check.sh --display  # per-step checklist
+tail -f /DATA/AppData/mesh/log/mesh.log
+```
+
+Script updates take effect one run late by design: the sync copies new scripts during run N,
+the new versions execute on run N+1.
 
 ## License
 

@@ -7,9 +7,12 @@ services:
     hostname: install-test
     env_file: .env
     volumes:
-      # Mount install.sh and docker-compose template from parent (read-only)
+      # Mount install.sh, the compose template, and the self-check scripts from
+      # parent (read-only). With scripts/ beside the --local compose, install.sh
+      # uses these LOCAL scripts instead of fetching the published set from GitHub.
       - ../install.sh:/tmp/install.sh:ro
       - ../docker-compose.yml:/tmp/docker-compose.yml:ro
+      - ../scripts:/tmp/scripts:ro
 
       # Docker socket so "docker compose up -d" works inside the container
       - /var/run/docker.sock:/var/run/docker.sock

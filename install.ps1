@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Domain,
 
+    [string]$Email,
     [string]$PublicIp,
     [string]$DataRoot = "/c/DATA"
 )
@@ -51,7 +52,9 @@ if (-not $PublicIp) {
 
 # 3. Compute derived values
 $PublicIpDash = $PublicIp -replace '[.:]', '-'
-$Email = "admin@$Domain"
+# Prefer the account email passed from the dashboard; fall back to a synthetic
+# admin@<domain> address when the installer is run standalone without -Email.
+if (-not $Email) { $Email = "admin@$Domain" }
 
 # Seed a platform secret consumed by app-store apps via $APP_DEFAULT_PASSWORD /
 # $PCS_DEFAULT_PASSWORD. Preserve across reruns.

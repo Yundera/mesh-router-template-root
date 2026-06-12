@@ -1,0 +1,23 @@
+# Mesh-router self-check scripts — executed in this order by self-check.sh.
+# No auto-discovery: a script only runs if listed here.
+
+# Self-maintenance
+ensure-scripts-executable.sh
+ensure-self-check-cron.sh
+ensure-logrotate.sh
+
+# Prerequisites
+ensure-docker-installed.sh
+ensure-env-valid.sh
+
+# Template sync / auto-update (no-op when MESH_AUTO_UPDATE=false)
+ensure-template-sync.sh
+
+# Stack
+ensure-public-ip.sh
+ensure-stack-pulled.sh
+ensure-stack-up.sh
+
+# Verification (check-only, no repair)
+ensure-route-registered.sh
+ensure-domain-reachable.sh
