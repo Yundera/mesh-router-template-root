@@ -15,6 +15,7 @@ ensure-template-sync.sh
 
 # Stack
 ensure-public-ip.sh
+ensure-email-synced.sh
 ensure-stack-pulled.sh
 ensure-stack-up.sh
 
