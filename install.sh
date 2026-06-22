@@ -289,8 +289,9 @@ EOF
   chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
   echo "[OK] .env written"
 
-  echo "[..] Starting containers..."
+  echo "[..] Restarting stack (clean down then up)..."
   cd "$APP_DIR"
+  docker compose down --remove-orphans 2>/dev/null || true
   docker compose up -d
 
   echo ""
@@ -333,6 +334,21 @@ env_set MESH_AUTO_UPDATE "$MESH_AUTO_UPDATE"
 [[ -n "$EMAIL_ARG" ]] && env_set EMAIL "$EMAIL_ARG"
 [[ -n "$PUBLIC_IP" ]] && env_set PUBLIC_IP "$PUBLIC_IP"
 echo "[OK] .env written"
+
+# Force a clean down before the self-check brings the stack back up. install.sh
+# is user-triggered (manual install/update), so a brief full outage is fine, and
+# a clean teardown is the only reliable way to apply an identity change (new
+# domain/provider): an in-place `up -d` — what the nightly self-check does — can
+# leave stale WireGuard/network state and a stale caddy config behind, which
+# surfaces as a 502 on the tunnel path. ensure-stack-up brings it back up next.
+#
+# Guarded: a fresh install has no Docker yet (ensure-docker-installed runs in the
+# self-check below) and no stack to stop, so this is skipped on first install.
+if command -v docker >/dev/null 2>&1 && [[ -f "$APP_DIR/docker-compose.yml" ]]; then
+  echo "[..] Stopping existing stack for a clean restart..."
+  (cd "$APP_DIR" && docker compose down --remove-orphans) || true
+  echo "[OK] Stack stopped"
+fi
 
 echo ""
 echo "[..] Running self-check (installs Docker, brings up the stack, verifies routing)..."
