@@ -80,6 +80,72 @@ if [[ -z "$DOMAIN" ]]; then
   usage
 fi
 
+# Validate argument *shape* before anything lands in .env.
+# These values are written verbatim into .env (PROVIDER=..., DOMAIN=...), which
+# is later sourced by bash. An unfilled placeholder like "<SIGNATURE>" — or any
+# other shell metacharacter — turns into a redirect/expansion and aborts the
+# whole stack with the cryptic "syntax error near unexpected token `newline`"
+# instead of telling the user their provider string is wrong. Fail loudly here.
+die_bad_arg() {
+  # $1 = arg name, $2 = bad value, rest = explanation lines
+  local name="$1" value="$2"; shift 2
+  echo "Error: --${name} is invalid." >&2
+  echo "       Got: ${value}" >&2
+  local line
+  for line in "$@"; do echo "       ${line}" >&2; done
+  if [[ "$value" == *'<'* || "$value" == *'>'* ]]; then
+    echo "       Hint: '<' or '>' means you pasted a literal placeholder (e.g." >&2
+    echo "             \"<SIGNATURE>\") instead of the generated value. Make sure" >&2
+    echo "             your key/signature was actually generated before installing." >&2
+  fi
+  exit 1
+}
+
+# PROVIDER must be exactly: backend_url,userid,signature
+# Allowlist the characters real values use (URL + base58/base64/hex); anything
+# else (angle brackets, spaces, quotes, $, backticks, ...) is rejected.
+if [[ ! "$PROVIDER" =~ ^[A-Za-z0-9._:/,+=-]+$ ]]; then
+  die_bad_arg provider "$PROVIDER" \
+    "Expected: backend_url,userid,signature" \
+    "It contains characters that aren't valid in a provider string."
+fi
+IFS=',' read -r -a _provider_parts <<<"$PROVIDER"
+if [[ "${#_provider_parts[@]}" -ne 3 ]]; then
+  die_bad_arg provider "$PROVIDER" \
+    "Expected 3 comma-separated fields (backend_url,userid,signature)," \
+    "got ${#_provider_parts[@]}."
+fi
+if [[ -z "${_provider_parts[0]}" || -z "${_provider_parts[1]}" || -z "${_provider_parts[2]}" ]]; then
+  die_bad_arg provider "$PROVIDER" \
+    "One of backend_url,userid,signature is empty."
+fi
+if [[ ! "${_provider_parts[0]}" =~ ^https?://[A-Za-z0-9.-]+ ]]; then
+  die_bad_arg provider "$PROVIDER" \
+    "The backend URL (first field) must start with http:// or https://." \
+    "Got URL: ${_provider_parts[0]}"
+fi
+# Catch placeholder words pasted without angle brackets (SIGNATURE, USERID, ...).
+for _f in "${_provider_parts[@]}"; do
+  case "$(printf '%s' "$_f" | tr '[:upper:]' '[:lower:]')" in
+    signature|userid|user-id|user_id|your-signature|your-userid|changeme|placeholder|todo|xxx)
+      die_bad_arg provider "$PROVIDER" \
+        "Still contains a placeholder field ('${_f}')." \
+        "Generate your real userid/signature before installing." ;;
+  esac
+done
+
+# DOMAIN must be a plain hostname (no scheme, no path, no metacharacters).
+if [[ ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ || "$DOMAIN" != *.* ]]; then
+  die_bad_arg domain "$DOMAIN" \
+    "Expected a hostname like alice.nsl.sh (letters, digits, dots, hyphens)."
+fi
+
+# EMAIL, if given, lands in .env too — keep it free of shell metacharacters.
+if [[ -n "$EMAIL_ARG" && ! "$EMAIL_ARG" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$ ]]; then
+  die_bad_arg email "$EMAIL_ARG" \
+    "Expected an address like you@example.com."
+fi
+
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this installer must run as root." >&2
   echo "Try: curl -fsSL <url> | sudo -E bash -s -- --provider ... --domain ..." >&2
