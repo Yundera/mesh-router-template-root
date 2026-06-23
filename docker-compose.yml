@@ -83,7 +83,7 @@ services:
       pcs: null
 
   casaos:
-    image: ghcr.io/yundera/casa-img:0.4.15-44
+    image: ghcr.io/yundera/casa-img:0.4.15-45
     container_name: casaos
     hostname: casaos
     restart: unless-stopped
@@ -110,6 +110,10 @@ services:
       APP_PUBLIC_IP_DASH: "${PUBLIC_IP_DASH}"
       APP_EMAIL: "${EMAIL}"
       APP_NET: pcs
+
+      # SMTP configuration for magic link and password reset emails
+      SMTP_HOST: "smtp"
+      SMTP_PORT: "587"
     networks:
       pcs: null
     labels:
