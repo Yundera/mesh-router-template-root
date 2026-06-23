@@ -28,7 +28,7 @@ DATA_ROOT_OVERRIDE=""
 
 usage() {
   cat <<EOF
-Yundera Mesh Router Uninstaller
+Mesh Router Uninstaller
 
 Usage:
   uninstall.sh [options]
@@ -78,7 +78,7 @@ case "$MESH_ROOT" in
   *) echo "Error: refusing to remove unexpected MESH_ROOT='$MESH_ROOT'" >&2; exit 1 ;;
 esac
 
-echo "=== Yundera Mesh Router Uninstaller ==="
+echo "=== Mesh Router Uninstaller ==="
 echo ""
 echo "This will remove:"
 echo "  - docker stack 'mesh' (tunnel, agent, caddy, smtp, casaos) + caddy volumes"

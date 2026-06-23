@@ -33,7 +33,7 @@ PGID="1000"
 
 usage() {
   cat <<EOF
-Yundera Mesh Router Installer
+Mesh Router Installer
 
 Usage:
   install.sh --provider <provider-string> --domain <domain> [options]
@@ -152,7 +152,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "=== Yundera Mesh Router Installer ==="
+echo "=== Mesh Router Installer ==="
 echo ""
 
 # 1. Windows/WSL mode

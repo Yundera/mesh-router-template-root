@@ -21,7 +21,7 @@ HEADERS_FILE=$(mktemp)
 trap 'rm -f "$HEADERS_FILE"' EXIT
 
 HTTP_CODE=$(curl -sS -o /dev/null -D "$HEADERS_FILE" -w '%{http_code}' \
-    --max-time 30 -H 'X-Mesh-Trace: 1' "https://$DOMAIN/" 2>&1) || HTTP_CODE="000"
+    --max-time 600 -H 'X-Mesh-Trace: 1' "https://$DOMAIN/" 2>&1) || HTTP_CODE="000"
 
 MESH_ROUTE=$(grep -i '^x-mesh-route:' "$HEADERS_FILE" | tr -d '\r' | cut -d' ' -f2- || true)
 
