@@ -111,7 +111,9 @@ services:
       APP_EMAIL: "${EMAIL}"
       APP_NET: pcs
 
-      # SMTP configuration for magic link and password reset emails
+      # Passwordless email sign-in: casaos enables the magic-link login option
+      # only when USER_EMAIL + SMTP_HOST + SMTP_PORT are all set.
+      USER_EMAIL: "${EMAIL}"
       SMTP_HOST: "smtp"
       SMTP_PORT: "587"
     networks:
