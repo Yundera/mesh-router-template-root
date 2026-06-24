@@ -16,6 +16,10 @@ ensure-template-sync.sh
 # Stack
 ensure-public-ip.sh
 ensure-email-synced.sh
+# Provision Dex SSO (render config + BRIDGE_SECRET + break-glass admin) BEFORE
+# the stack comes up so docker compose interpolates the secret and Dex finds its
+# config on first start.
+ensure-dex.sh
 ensure-stack-pulled.sh
 ensure-stack-up.sh
 

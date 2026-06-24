@@ -135,9 +135,155 @@ services:
         source: /dev
         target: /dev
 
+  # =============================================================================
+  # DEX - OIDC identity broker for PCS apps (SSO)
+  # Apps delegate login via the OIDC authorization_code flow. Discovery:
+  #   https://auth-${DOMAIN}/.well-known/openid-configuration
+  # User identity is federated to CasaOS through the casaos-oidc-bridge connector
+  # (below). App clients are registered dynamically by auth-registrar over Dex's
+  # gRPC API — there is no static client list. Config + sqlite + the break-glass
+  # admin are provisioned by scripts/self-check/ensure-dex.sh into
+  # ${DATA_ROOT}/AppData/mesh/dex/.
+  # =============================================================================
+  dex:
+    image: ghcr.io/dexidp/dex:v2.43.1
+    container_name: dex
+    hostname: dex
+    restart: unless-stopped
+    command: ["dex", "serve", "/data/config.yaml"]
+    # If the bridge issuer is NOT served with a publicly-trusted cert (e.g. an
+    # internal-CA-only test host), Dex's back-channel TLS to it will fail; in
+    # that case ensure-dex.sh writes a CA bundle and you add:
+    #   environment:
+    #     SSL_CERT_FILE: /data/ca-bundle.crt
+    volumes:
+      # config.yaml (rendered) + dex.db (sqlite). This is CACHE, not precious
+      # data — see the recovery note in scripts/self-check/ensure-dex.sh.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex:/data
+    expose:
+      - "5556"   # OIDC web endpoints (Caddy terminates TLS), bound on pcs
+      - "5557"   # gRPC client-mgmt API — UNAUTHENTICATED, bound to dex-internal IP only
+    networks:
+      pcs: null
+      # gRPC (5557) is bound to this static IP in config.yaml, so it is reachable
+      # ONLY by containers on dex-internal (just auth-registrar).
+      dex-internal:
+        ipv4_address: 172.31.7.2
+    depends_on:
+      - casaos-oidc-bridge
+    labels:
+      # Standard domain with custom CA (gateway-routed)
+      caddy_0: auth-${DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 5556}}"
+      # nip.io variant (custom CA) — REQUIRED: the CF worker rewrites Host to nip.io
+      caddy_1: auth-${PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 5556}}"
+      # sslip.io variant (Let's Encrypt)
+      caddy_2: auth-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 5556}}"
+
+  # =============================================================================
+  # CASAOS-OIDC-BRIDGE - tiny OIDC provider fronting CasaOS's login API
+  # Dex's `casaos` connector federates here; the bridge authenticates the user
+  # against CasaOS (POST /v1/users/login) and verifies CasaOS's ES256 JWT via its
+  # JWKS. It MUST be reachable at a publicly-trusted host (casaos-oidc-${DOMAIN})
+  # so Dex's back-channel TLS validates. The nip.io label is REQUIRED — the CF
+  # worker rewrites Host to nip.io, so that is the route CF traffic matches.
+  # Signing key persisted at ${DATA_ROOT}/AppData/mesh/casaos-oidc-bridge/.
+  # =============================================================================
+  casaos-oidc-bridge:
+    image: ghcr.io/yundera/casaos-oidc-bridge:1.0.3
+    container_name: casaos-oidc-bridge
+    hostname: casaos-oidc-bridge
+    restart: unless-stopped
+    environment:
+      BRIDGE_ISSUER: "https://casaos-oidc-${DOMAIN}"
+      BRIDGE_ADDR: ":8089"
+      BRIDGE_KEY_PATH: /data/signing-key.json
+      CASAOS_LOGIN_URL: "http://casaos:8080/v1/users/login"
+      CASAOS_JWKS_URL: "http://casaos:8080/.well-known/jwks.json"
+      CLIENT_ID: dex
+      CLIENT_SECRET: "${BRIDGE_SECRET}"
+      REDIRECT_URIS: "https://auth-${DOMAIN}/callback"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/casaos-oidc-bridge:/data
+    expose:
+      - "8089"
+      - "8090"   # internal-only /validate (no Caddy label below → never gateway-routed)
+    networks:
+      pcs: null
+    depends_on:
+      - casaos
+    labels:
+      # Standard domain with custom CA (gateway-routed)
+      caddy_0: casaos-oidc-${DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 8089}}"
+      # nip.io variant — REQUIRED (CF worker rewrites Host to nip.io)
+      caddy_1: casaos-oidc-${PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 8089}}"
+      # sslip.io variant (Let's Encrypt)
+      caddy_2: casaos-oidc-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 8089}}"
+
+  # =============================================================================
+  # AUTH-REGISTRAR - OIDC client self-registration for PCS apps
+  # Sidecars (e.g. AppShield) POST their redirect URIs to
+  #   http://auth-registrar:9092/register
+  # on first login and get back {client_id, client_secret, issuer_url}. Caller
+  # identity is derived from the source IP via PTR lookup on the pcs network —
+  # client_id is never accepted as input. Intentionally NOT publicly routable.
+  # In Dex mode it calls Dex's gRPC CreateClient.
+  #
+  # STATELESS: the registrar's client-secret cache lives inside the container
+  # (DEX_CLIENTS_DIR=/tmp/dex-clients) and is deliberately NOT persisted — there
+  # is no per-client secret to back up. Within a container lifetime the cache
+  # makes re-registration idempotent (same secret); after a restart the cache is
+  # empty and the registrar transparently rotates each client's secret on its
+  # next /register. Apps re-register on every login, so this is invisible.
+  # =============================================================================
+  auth-registrar:
+    image: ghcr.io/yundera/mesh-auth:1.1.3
+    container_name: auth-registrar
+    hostname: auth-registrar
+    restart: unless-stopped
+    environment:
+      ISSUER_URL: https://auth-${DOMAIN}
+      REGISTRAR_BACKEND: dex
+      # Dex gRPC is reachable only on the isolated dex-internal net (static IP)
+      DEX_GRPC_ADDR: 172.31.7.2:5557
+      # ephemeral in-container cache (NOT persisted) — see note above
+      DEX_CLIENTS_DIR: /tmp/dex-clients
+      # Allowed redirect-URI host suffixes (comma-separated). An app's permitted
+      # hosts are <app>-<suffix> for each; the registrar verifies every requested
+      # callback against this exact set. Must list the SAME suffixes the apps'
+      # caddy_* labels use — the user domain plus the IP-based fallbacks.
+      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+    expose:
+      - "9092"
+    networks:
+      pcs: null            # /register from app sidecars + PTR attestation
+      dex-internal: null   # gRPC to Dex
+    depends_on:
+      - dex
+
 networks:
   pcs:
     name: pcs
+  # Isolated gRPC-only net for the auth-registrar <-> Dex client-management API.
+  # internal: true → no egress (Dex's egress comes from the pcs network it is also
+  # on). App containers live only on pcs, so they cannot reach Dex's gRPC port
+  # (5557), which is bound to 172.31.7.2 on this net. The subnet is pinned so Dex
+  # can bind gRPC to a known IP — keep it clear of other host docker networks.
+  dex-internal:
+    name: dex-internal
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.7.0/29
 
 volumes:
   caddy_data:

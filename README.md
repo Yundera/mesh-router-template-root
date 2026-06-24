@@ -52,6 +52,26 @@ Container management UI for the PCS instance.
 - First-run account setup handled by CasaOS itself; `DEFAULT_PASSWORD` is the platform secret exposed to installed apps (not the CasaOS login)
 - Accessible via the user's domain
 
+### dex / casaos-oidc-bridge / auth-registrar (SSO)
+
+Single sign-on for apps installed on the PCS. Apps (e.g. AppShield-gated apps)
+delegate login via OIDC instead of holding their own credentials.
+
+- **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
+  `/.well-known/openid-configuration`). Renders a connector-chooser login page.
+- **casaos-oidc-bridge** — small OIDC provider at `https://casaos-oidc-${DOMAIN}`
+  that federates Dex's `casaos` connector to CasaOS's login API, so users log in
+  with their CasaOS identity. CasaOS is left untouched.
+- **auth-registrar** — apps self-register as OIDC clients (`POST /register` to
+  `http://auth-registrar:9092`, internal only); the registrar creates the client
+  in Dex over its gRPC API. A disposable break-glass admin (`staticPasswords`)
+  exists for recovery when CasaOS is unreachable.
+- Provisioned by `scripts/self-check/ensure-dex.sh` (renders Dex config, seeds
+  `BRIDGE_SECRET` into `.env`, generates the break-glass admin). Data lives under
+  `${DATA_ROOT}/AppData/mesh/dex` and is treated as cache (safe to delete; it
+  self-heals on the next login). Dex's gRPC client API is unauthenticated and is
+  therefore bound to the isolated `dex-internal` network, never `pcs`.
+
 ## Network Configuration
 
 All services connect via the `pcs` bridge network, enabling internal communication:
@@ -139,7 +159,8 @@ ${DATA_ROOT}/AppData/mesh/
 2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
 3. **Template sync** — downloads this repo's `main` tarball, atomically swaps `template/`,
    copies `docker-compose.yml` and `scripts/` to their live locations (auto-update)
-4. **Stack** — re-detect public IP (updates `.env` if changed), `docker compose pull`, `up -d`
+4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
+   (`ensure-dex.sh`: render config, seed `BRIDGE_SECRET` + break-glass admin), `docker compose pull`, `up -d`
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
    end-to-end (`curl -H 'X-Mesh-Trace: 1' https://$DOMAIN/`)
 

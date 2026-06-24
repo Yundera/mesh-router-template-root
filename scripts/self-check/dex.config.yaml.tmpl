@@ -1,0 +1,69 @@
+# Dex configuration template.
+# Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/mesh/dex/config.yaml
+# on every self-check. DO NOT edit the rendered file — edit this template and let
+# the self-check re-render it. Substituted tokens: ${DOMAIN}, ${ADMIN_EMAIL},
+# ${BRIDGE_SECRET}, and __ADMIN_HASH__ (bcrypt, injected out-of-band).
+
+issuer: https://auth-${DOMAIN}
+
+# Single SQLite file living in the mounted data dir (/data -> host
+# ${DATA_ROOT}/AppData/mesh/dex). Dex creates + migrates it on first start; it
+# must be writable by the dex container uid (1001) — ensure-dex.sh owns the perms.
+storage:
+  type: sqlite3
+  config:
+    file: /data/dex.db
+
+# Caddy terminates TLS at auth-${DOMAIN} and reverse-proxies to this HTTP port.
+web:
+  http: 0.0.0.0:5556
+
+# Client-management gRPC API. auth-registrar (mesh-auth, REGISTRAR_BACKEND=dex)
+# calls CreateClient here when a PCS app first logs in. This API is
+# UNAUTHENTICATED, so it is bound to the isolated `dex-internal` network's static
+# IP ONLY (not 0.0.0.0). App containers live on `pcs` and therefore cannot reach
+# it; only auth-registrar (also on dex-internal) can. The IP is pinned in
+# docker-compose.yml — keep the two in sync.
+grpc:
+  addr: 172.31.7.2:5557
+
+oauth2:
+  # Every PCS app is first-party; skip the per-app consent screen.
+  skipApprovalScreen: true
+
+# Enables the local password connector backing the break-glass admin below.
+enablePasswordDB: true
+
+# Break-glass admin — DISPOSABLE. The real login path is the CasaOS connector
+# below; this account only exists for recovery when CasaOS is unreachable. The
+# password is random (ensure-dex.sh writes the plaintext to
+# ${DATA_ROOT}/AppData/mesh/dex/admin-password, chmod 600). To rotate: delete
+# that file (and admin-hash beside it) and re-run the self-check.
+staticPasswords:
+  - email: "${ADMIN_EMAIL}"
+    hash: "__ADMIN_HASH__"
+    username: admin
+    userID: "00000000-0000-0000-0000-000000000001"
+
+# Application clients are NOT defined statically — auth-registrar registers them
+# dynamically over Dex's gRPC API. The registrar is stateless (it persists no
+# secrets), and apps re-register on every login, so the client list here is
+# disposable cache that rebuilds itself.
+
+connectors:
+  - type: oidc
+    id: casaos
+    name: CasaOS
+    config:
+      # The casaos-oidc-bridge. Must be a publicly-trusted host so Dex's
+      # back-channel TLS to it validates against system roots.
+      issuer: https://casaos-oidc-${DOMAIN}
+      clientID: dex
+      clientSecret: "${BRIDGE_SECRET}"
+      # Dex's own connector callback.
+      redirectURI: https://auth-${DOMAIN}/callback
+      userNameKey: name
+      scopes:
+        - openid
+        - profile
+        - email
