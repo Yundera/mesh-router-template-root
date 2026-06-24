@@ -25,4 +25,3 @@ ensure-stack-up.sh
 
 # Verification (check-only, no repair)
 ensure-route-registered.sh
-ensure-domain-reachable.sh

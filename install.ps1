@@ -1,6 +1,10 @@
 # Mesh Router Installer (Windows/PowerShell)
-# Usage: irm https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.ps1 | iex
+# Usage: irm https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.ps1 | iex
 # Or:    .\install.ps1 -Provider "https://nsl.sh/router/api,userid,sig" -Domain "alice.nsl.sh"
+#
+# Installs track the 'stable' channel by default. Pass -Channel main to use the
+# development branch. (Windows installs are one-shot — no nightly auto-update —
+# so the channel only affects what this run fetches.)
 
 param(
     [Parameter(Mandatory=$true)]
@@ -11,11 +15,12 @@ param(
 
     [string]$Email,
     [string]$PublicIp,
-    [string]$DataRoot = "/c/DATA"
+    [string]$DataRoot = "/c/DATA",
+    [string]$Channel = "stable"
 )
 
 $ErrorActionPreference = "Stop"
-$RepoBase = "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main"
+$RepoBase = "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@$Channel"
 $InstallDir = "$DataRoot/AppData/casaos/apps/mesh"
 
 Write-Host "=== Yundera Mesh Router Installer (Windows) ===" -ForegroundColor Cyan
@@ -114,6 +119,7 @@ DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
 PUID=0
 PGID=0
+MESH_UPDATE_CHANNEL=$Channel
 "@
 Set-Content -Path "$composePath\.env" -Value $envContent -NoNewline
 Write-Host "[OK] .env written" -ForegroundColor Green

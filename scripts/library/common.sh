@@ -53,3 +53,24 @@ set_env_value() {
     chown "${PUID:-1000}:${PGID:-1000}" "$tmp" 2>/dev/null || true
     mv "$tmp" "$ENV_FILE"
 }
+
+# Resolve the template tarball URL from the configured update channel.
+#
+# Precedence (highest first):
+#   1. MESH_TEMPLATE_URL — explicit full URL override (forks, tags, custom builds).
+#   2. MESH_UPDATE_CHANNEL — a branch/channel name (stable | main | <other>).
+#   3. default: stable.
+#
+# Both vars come from the stack .env (sourced above), so a channel chosen at
+# install time is honoured by the nightly self-check without any extra wiring.
+# install.sh carries an inline copy of this logic because it bootstraps before
+# this library is on disk — keep the two in sync.
+mesh_template_url() {
+    if [ -n "${MESH_TEMPLATE_URL:-}" ]; then
+        printf '%s\n' "$MESH_TEMPLATE_URL"
+        return 0
+    fi
+    local channel="${MESH_UPDATE_CHANNEL:-stable}"
+    [ -n "$channel" ] || channel="stable"
+    printf 'https://github.com/yundera/mesh-router-template-root/archive/refs/heads/%s.tar.gz\n' "$channel"
+}

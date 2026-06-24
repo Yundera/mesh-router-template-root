@@ -14,7 +14,8 @@
 #      take effect on the NEXT self-check run, one cycle of lag by design).
 #
 # Opt out with MESH_AUTO_UPDATE=false in .env (the rest of the self-check
-# still runs). Override the source with MESH_TEMPLATE_URL (dev/testing).
+# still runs). Pick the source channel with MESH_UPDATE_CHANNEL (stable|main,
+# default stable) or override entirely with MESH_TEMPLATE_URL (dev/testing).
 
 set -e
 
@@ -28,7 +29,9 @@ case "${MESH_AUTO_UPDATE:-true}" in
         ;;
 esac
 
-TARBALL_URL="${MESH_TEMPLATE_URL:-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/main.tar.gz}"
+# Resolved from MESH_UPDATE_CHANNEL / MESH_TEMPLATE_URL in the sourced .env, so
+# a box stays on the channel it was installed from across nightly syncs.
+TARBALL_URL="$(mesh_template_url)"
 
 TMP_DIR=$(mktemp -d)
 cleanup() { rm -rf "$TMP_DIR" "${TEMPLATE_DIR}.new" "${TEMPLATE_DIR}.old"; }

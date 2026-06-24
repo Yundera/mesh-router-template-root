@@ -103,30 +103,51 @@ const userConfig = template
   .replace('%EMAIL%', userEmail);
 ```
 
+## Update channels
+
+Installs follow an **update channel** — a branch of this repo:
+
+| Channel | Branch | Who | How to select |
+|---------|--------|-----|----------------|
+| `stable` (default) | `stable` | end users | nothing — it's the default |
+| `main` (dev) | `main` | developers/testing | `install.sh --channel main` (or `-Channel main` on Windows) |
+
+The chosen channel is persisted to `.env` as `MESH_UPDATE_CHANNEL`, and the nightly
+self-check (`ensure-template-sync.sh`) reads it back, so a box keeps updating from the
+channel it was installed with instead of drifting onto another branch.
+`MESH_TEMPLATE_URL` (a full tarball URL) still overrides everything for forks/tags.
+
+Promote dev → users by merging `main` into `stable`.
+
 ## Publishing updates
 
-The dashboard's install command curls `install.sh` from jsDelivr:
+The dashboard's install command curls `install.sh` from jsDelivr — `@stable` by default
+(the dashboard's `TEMPLATE_REPO_URL` config selects the ref it serves):
 
 ```
-https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh
+https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh
 ```
 
-`install.sh` no longer fetches individual files from the CDN. It downloads the whole repo as a `main` tarball from GitHub, lays down `docker-compose.yml` + `scripts/`, then runs the self-check. The nightly self-check (`ensure-template-sync.sh`) re-syncs from the **same** GitHub tarball:
+`install.sh` no longer fetches individual files from the CDN. It downloads the whole repo as a channel tarball from GitHub, lays down `docker-compose.yml` + `scripts/`, then runs the self-check. The nightly self-check (`ensure-template-sync.sh`) re-syncs from the **same** GitHub tarball for the box's channel:
 
 ```
-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/main.tar.gz
+https://github.com/yundera/mesh-router-template-root/archive/refs/heads/stable.tar.gz   # or main
 ```
 
-GitHub serves that archive near-realtime (no 12-hour CDN cache), so pushes to `main` reach existing installs — compose **and** scripts — within minutes, no purge required.
+GitHub serves that archive near-realtime (no 12-hour CDN cache), so pushes to a channel branch reach existing installs on it — compose **and** scripts — within minutes, no purge required.
 
-Only `install.sh` itself sits behind jsDelivr's floating-`@main` cache (up to 12h). After changing `install.sh`, purge it so new installs pick it up:
+Only `install.sh` / `install.ps1` themselves sit behind jsDelivr's floating cache (up to 12h). After changing them, purge the channel(s) you publish so new installs pick them up:
 
 ```bash
+# stable (the default user path) — purge after merging into stable
+curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh"
+curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.ps1"
+# main (dev channel)
 curl "https://purge.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh"
 ```
 
 Notes:
-- Purge only works once commits are actually pushed to `origin/main`. It re-resolves `@main` against GitHub, so nothing to fetch = nothing changes.
+- Purge only works once commits are actually pushed to the branch. It re-resolves `@stable`/`@main` against GitHub, so nothing to fetch = nothing changes.
 - Pinned refs (`@1.2.3`, `@<sha>`) are immutable and don't need purging.
 - Purge is rate-limited; don't script it in a loop.
 
@@ -157,8 +178,9 @@ ${DATA_ROOT}/AppData/mesh/
 
 1. **Self-maintenance** — scripts executable, nightly cron entry, logrotate config
 2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
-3. **Template sync** — downloads this repo's `main` tarball, atomically swaps `template/`,
-   copies `docker-compose.yml` and `scripts/` to their live locations (auto-update)
+3. **Template sync** — downloads this repo's channel tarball (`MESH_UPDATE_CHANNEL`,
+   default `stable`), atomically swaps `template/`, copies `docker-compose.yml` and
+   `scripts/` to their live locations (auto-update)
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
    (`ensure-dex.sh`: render config, seed `BRIDGE_SECRET` + break-glass admin), `docker compose pull`, `up -d`
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
@@ -171,8 +193,9 @@ Exit code 0 only if every script succeeded; failures never abort the run early.
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
+| `MESH_UPDATE_CHANNEL` | `stable` | Branch this box tracks (`stable` \| `main`). Set at install via `--channel`; the nightly sync honours it |
 | `MESH_SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
-| `MESH_TEMPLATE_URL` | repo `main` tarball | Override the sync source (dev/testing) |
+| `MESH_TEMPLATE_URL` | _(unset)_ | Full tarball URL that overrides `MESH_UPDATE_CHANNEL` entirely (forks/tags/dev) |
 
 Because the compose file is template-owned, **hand-edits to the live `docker-compose.yml` are
 lost on the next sync** — pin with `MESH_AUTO_UPDATE=false` if you need local changes.

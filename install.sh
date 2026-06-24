@@ -10,14 +10,17 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 # stack up, and verifies routing — shown live as a per-step checklist (--display).
 #
 # Usage:
-#   curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/install.sh \
+#   curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh \
 #     | sudo -E bash -s -- --provider "https://nsl.sh/router/api,userid,signature" \
 #       --domain alice.nsl.sh [--email you@example.com]
+#
+# Installs track the 'stable' channel by default. Add --channel main to follow
+# the development branch instead; the choice is persisted (MESH_UPDATE_CHANNEL in
+# .env) so the nightly self-check keeps updating from the same channel.
 #
 # Windows/WSL (--windows) installs are Linux-self-check-incompatible (cron,
 # logrotate, apt) and stay on a direct one-shot path: compose up, no auto-update.
 
-TARBALL_URL="${MESH_TEMPLATE_URL:-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/main.tar.gz}"
 APP_DIR="/DATA/AppData/casaos/apps/mesh"   # CasaOS-visible surface: compose + .env only
 
 # Defaults
@@ -28,6 +31,7 @@ PUBLIC_IP=""
 DATA_ROOT="/DATA"
 LOCAL_COMPOSE=""
 WINDOWS_MODE=false
+CHANNEL="stable"   # update channel: stable | main (overridden by MESH_TEMPLATE_URL)
 PUID="1000"
 PGID="1000"
 
@@ -44,6 +48,8 @@ Required:
 
 Options:
   --email       Account email exposed to installed apps (default: admin@<domain>)
+  --channel     Update channel: stable (default) or main (development branch).
+                Persisted to .env so nightly updates follow the same channel.
   --public-ip   Server public IP (auto-detected by self-check if omitted)
   --data-root   Data storage path (default: /DATA)
   --local       Path to a local docker-compose.yml (also pulls scripts/ beside
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --provider)  PROVIDER="$2"; shift 2 ;;
     --domain)    DOMAIN="$2"; shift 2 ;;
     --email)     EMAIL_ARG="$2"; shift 2 ;;
+    --channel)   CHANNEL="$2"; shift 2 ;;
     --public-ip) PUBLIC_IP="$2"; shift 2 ;;
     --data-root) DATA_ROOT="$2"; shift 2 ;;
     --local)     LOCAL_COMPOSE="$2"; shift 2 ;;
@@ -145,6 +152,19 @@ if [[ -n "$EMAIL_ARG" && ! "$EMAIL_ARG" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A
   die_bad_arg email "$EMAIL_ARG" \
     "Expected an address like you@example.com."
 fi
+
+# CHANNEL is persisted to .env and interpolated into a GitHub branch URL, so
+# restrict it to a plain git ref name (letters, digits, ., _, /, -).
+if [[ ! "$CHANNEL" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  die_bad_arg channel "$CHANNEL" \
+    "Expected a branch name like stable or main."
+fi
+
+# Resolve the template tarball source. Precedence mirrors common.sh's
+# mesh_template_url() (keep them in sync): an explicit MESH_TEMPLATE_URL full-URL
+# override wins, otherwise build the URL from the chosen channel. This bootstrap
+# can't source common.sh — the library isn't on disk yet.
+TARBALL_URL="${MESH_TEMPLATE_URL:-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL}.tar.gz}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this installer must run as root." >&2
@@ -284,6 +304,7 @@ DEFAULT_SERVICE_PORT=8080
 PUID=${PUID}
 PGID=${PGID}
 MESH_AUTO_UPDATE=false
+MESH_UPDATE_CHANNEL=${CHANNEL}
 EOF
   chmod 600 "$APP_DIR/.env"
   chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
@@ -331,6 +352,7 @@ env_set PROVIDER "$PROVIDER"
 env_set DOMAIN "$DOMAIN"
 env_set DATA_ROOT "$DATA_ROOT"
 env_set MESH_AUTO_UPDATE "$MESH_AUTO_UPDATE"
+env_set MESH_UPDATE_CHANNEL "$CHANNEL"
 [[ -n "$EMAIL_ARG" ]] && env_set EMAIL "$EMAIL_ARG"
 [[ -n "$PUBLIC_IP" ]] && env_set PUBLIC_IP "$PUBLIC_IP"
 echo "[OK] .env written"
