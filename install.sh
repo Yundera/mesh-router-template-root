@@ -18,8 +18,11 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 # the development branch instead; the choice is persisted (MESH_UPDATE_CHANNEL in
 # .env) so the nightly self-check keeps updating from the same channel.
 #
-# Windows/WSL (--windows) installs are Linux-self-check-incompatible (cron,
-# logrotate, apt) and stay on a direct one-shot path: compose up, no auto-update.
+# Desktop installs (--windows, --macos) run Docker Desktop and are
+# Linux-self-check-incompatible (cron, logrotate, apt). They stay on a direct
+# one-shot path: compose up, no auto-update. On macOS the installer runs as the
+# current user (no sudo) and the whole layout lives under $HOME/DATA, because the
+# macOS root volume is read-only under SIP.
 
 APP_DIR="/DATA/AppData/casaos/apps/mesh"   # CasaOS-visible surface: compose + .env only
 
@@ -31,6 +34,7 @@ PUBLIC_IP=""
 DATA_ROOT="/DATA"
 LOCAL_COMPOSE=""
 WINDOWS_MODE=false
+MACOS_MODE=false
 CHANNEL="stable"   # update channel: stable | main (overridden by MESH_TEMPLATE_URL)
 PUID="1000"
 PGID="1000"
@@ -51,11 +55,13 @@ Options:
   --channel     Update channel: stable (default) or main (development branch).
                 Persisted to .env so nightly updates follow the same channel.
   --public-ip   Server public IP (auto-detected by self-check if omitted)
-  --data-root   Data storage path (default: /DATA)
+  --data-root   Data storage path (default: /DATA, or \$HOME/DATA with --macos)
   --local       Path to a local docker-compose.yml (also pulls scripts/ beside
                 it); skips the CDN and disables auto-update — for dev/testing
   --windows     Windows/WSL mode (DATA_ROOT=/c/DATA, user 0:0, no rshared,
                 no self-check)
+  --macos       macOS mode with Docker Desktop (DATA_ROOT=\$HOME/DATA, runs as the
+                current user, no rshared, no self-check). Do not use sudo.
   --help        Show this help
 EOF
   exit 1
@@ -72,10 +78,24 @@ while [[ $# -gt 0 ]]; do
     --data-root) DATA_ROOT="$2"; shift 2 ;;
     --local)     LOCAL_COMPOSE="$2"; shift 2 ;;
     --windows)   WINDOWS_MODE=true; shift ;;
+    --macos)     MACOS_MODE=true; shift ;;
     --help)      usage ;;
     *)           echo "Unknown option: $1"; usage ;;
   esac
 done
+
+if [[ "$WINDOWS_MODE" == true && "$MACOS_MODE" == true ]]; then
+  echo "Error: --windows and --macos are mutually exclusive." >&2
+  exit 1
+fi
+
+# Windows and macOS both sit on Docker Desktop: no Linux self-check (cron,
+# logrotate, apt), no rshared bind propagation, and a complete .env written up
+# front instead of one backfilled by the ensure-*.sh scripts.
+DESKTOP_MODE=false
+if [[ "$WINDOWS_MODE" == true || "$MACOS_MODE" == true ]]; then
+  DESKTOP_MODE=true
+fi
 
 # Validate required params
 if [[ -z "$PROVIDER" ]]; then
@@ -166,7 +186,19 @@ fi
 # can't source common.sh — the library isn't on disk yet.
 TARBALL_URL="${MESH_TEMPLATE_URL:-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL}.tar.gz}"
 
-if [[ $EUID -ne 0 ]]; then
+# Privilege model differs by platform:
+#   Linux/WSL: root is required (apt-installs Docker, writes /DATA, adds cron).
+#   macOS:     root is forbidden. Docker Desktop runs as the current user and the
+#              whole layout lives under $HOME. Under sudo, $HOME becomes /var/root
+#              and the install would land somewhere the user never sees.
+if [[ "$MACOS_MODE" == true ]]; then
+  if [[ $EUID -eq 0 ]]; then
+    echo "Error: --macos must not run as root." >&2
+    echo "Re-run without sudo:" >&2
+    echo "  curl -fsSL <url> | bash -s -- --macos --provider ... --domain ..." >&2
+    exit 1
+  fi
+elif [[ $EUID -ne 0 ]]; then
   echo "Error: this installer must run as root." >&2
   echo "Try: curl -fsSL <url> | sudo -E bash -s -- --provider ... --domain ..." >&2
   exit 1
@@ -189,6 +221,24 @@ if [[ "$WINDOWS_MODE" == true ]]; then
     ln -sf /c/DATA /DATA
     echo "[OK] Symlinked /DATA -> /c/DATA"
   fi
+fi
+
+# 1b. macOS mode (Docker Desktop)
+# The macOS root volume is read-only under SIP, so /DATA can neither be created
+# nor symlinked the way WSL does it. Keep the whole layout under $HOME and move
+# APP_DIR with it. This is safe because the casaos service bind-mounts
+# ${DATA_ROOT} to /DATA, so CasaOS still sees /DATA/AppData/casaos/apps/mesh from
+# inside the container, which is the only path it actually cares about.
+if [[ "$MACOS_MODE" == true ]]; then
+  echo "[!!] macOS mode enabled (Docker Desktop)"
+  if [[ "$DATA_ROOT" == "/DATA" ]]; then
+    DATA_ROOT="$HOME/DATA"   # override the default only; respect an explicit --data-root
+  fi
+  APP_DIR="$DATA_ROOT/AppData/casaos/apps/mesh"
+  PUID="$(id -u)"
+  PGID="$(id -g)"
+  mkdir -p "$DATA_ROOT"
+  echo "[OK] DATA_ROOT: $DATA_ROOT"
 fi
 
 MESH_ROOT="$DATA_ROOT/AppData/mesh"
@@ -268,12 +318,41 @@ fi
 find "$SCRIPTS_DIR" -type f -name '*.sh' -exec chmod +x {} +
 
 # ---------------------------------------------------------------------------
-# Windows: no Linux self-check (cron/logrotate/apt). Write a complete .env and
-# bring the stack up directly — there is no ensure-*.sh to backfill anything.
+# Desktop (Windows/WSL, macOS): no Linux self-check (cron/logrotate/apt). Write a
+# complete .env and bring the stack up directly — there is no ensure-*.sh to
+# backfill anything.
 # ---------------------------------------------------------------------------
-if [[ "$WINDOWS_MODE" == true ]]; then
-  echo "[..] Patching docker-compose for Windows (remove rshared)..."
-  sed -i '/bind:/,/propagation: rshared/d' "$APP_DIR/docker-compose.yml"
+if [[ "$DESKTOP_MODE" == true ]]; then
+  if [[ "$MACOS_MODE" == true ]]; then
+    PLATFORM_LABEL="macOS"
+  else
+    PLATFORM_LABEL="Windows"
+  fi
+
+  echo "[..] Patching docker-compose for ${PLATFORM_LABEL} (remove rshared)..."
+  # Docker Desktop does not support bind propagation. Note the "-i.bak" form: it
+  # is the only in-place spelling accepted by BOTH GNU sed and the BSD sed that
+  # macOS ships (a bare "-i" makes BSD sed read the next argument as a suffix).
+  sed -i.bak '/bind:/,/propagation: rshared/d' "$APP_DIR/docker-compose.yml"
+  rm -f "$APP_DIR/docker-compose.yml.bak"
+
+  # Apple Silicon: casa-img is published for amd64 only, so Docker Desktop has to
+  # run it under emulation. Pinning the platform explicitly keeps image selection
+  # deterministic on first pull instead of relying on the fallback path. Compose
+  # picks docker-compose.override.yml up automatically.
+  # If casa-img gains an arm64 manifest, delete this block.
+  if [[ "$MACOS_MODE" == true ]]; then
+    if [[ "$(uname -m)" == "arm64" ]]; then
+      echo "[..] Apple Silicon detected: pinning casaos to linux/amd64 (emulated)..."
+      cat > "$APP_DIR/docker-compose.override.yml" <<'YAML'
+services:
+  casaos:
+    platform: linux/amd64
+YAML
+    else
+      rm -f "$APP_DIR/docker-compose.override.yml"
+    fi
+  fi
 
   if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP=$(curl -4s --max-time 5 ifconfig.me 2>/dev/null || echo "")
@@ -288,7 +367,9 @@ if [[ "$WINDOWS_MODE" == true ]]; then
     DEFAULT_PASSWORD=$(grep -E '^DEFAULT_PASSWORD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
   fi
   if [[ -z "$DEFAULT_PASSWORD" ]]; then
-    DEFAULT_PASSWORD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
+    # LC_ALL=C on tr as well as head: BSD tr aborts with "Illegal byte sequence"
+    # when it meets non-UTF-8 bytes from /dev/urandom under a UTF-8 locale.
+    DEFAULT_PASSWORD=$(LC_ALL=C head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 24)
   fi
 
   cat > "$APP_DIR/.env" <<EOF
@@ -316,10 +397,16 @@ EOF
   docker compose up -d
 
   echo ""
-  echo "=== Installation complete (Windows) ==="
+  echo "=== Installation complete (${PLATFORM_LABEL}) ==="
   echo "  Domain:  https://${DOMAIN}"
   echo "  Install: ${APP_DIR}"
   echo ""
+  if [[ "$MACOS_MODE" == true ]]; then
+    echo "First start pulls several images and can take a few minutes."
+    echo "Your server is reachable only while this Mac is awake, online, and Docker"
+    echo "Desktop is running. For an always on server, use Linux or a VPS."
+    echo ""
+  fi
   echo "Open https://${DOMAIN} to complete CasaOS first-run setup. Re-run to update."
   exit 0
 fi
