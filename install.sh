@@ -336,24 +336,6 @@ if [[ "$DESKTOP_MODE" == true ]]; then
   sed -i.bak '/bind:/,/propagation: rshared/d' "$APP_DIR/docker-compose.yml"
   rm -f "$APP_DIR/docker-compose.yml.bak"
 
-  # Apple Silicon: casa-img is published for amd64 only, so Docker Desktop has to
-  # run it under emulation. Pinning the platform explicitly keeps image selection
-  # deterministic on first pull instead of relying on the fallback path. Compose
-  # picks docker-compose.override.yml up automatically.
-  # If casa-img gains an arm64 manifest, delete this block.
-  if [[ "$MACOS_MODE" == true ]]; then
-    if [[ "$(uname -m)" == "arm64" ]]; then
-      echo "[..] Apple Silicon detected: pinning casaos to linux/amd64 (emulated)..."
-      cat > "$APP_DIR/docker-compose.override.yml" <<'YAML'
-services:
-  casaos:
-    platform: linux/amd64
-YAML
-    else
-      rm -f "$APP_DIR/docker-compose.override.yml"
-    fi
-  fi
-
   if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP=$(curl -4s --max-time 5 ifconfig.me 2>/dev/null || echo "")
   fi
