@@ -336,6 +336,27 @@ if [[ "$DESKTOP_MODE" == true ]]; then
   sed -i.bak '/bind:/,/propagation: rshared/d' "$APP_DIR/docker-compose.yml"
   rm -f "$APP_DIR/docker-compose.yml.bak"
 
+  # Apple Silicon: casaos-oidc-bridge and auth-registrar are still published
+  # amd64-only, so Docker Desktop has to run those two under emulation. Every
+  # other image in the stack (tunnel, agent, caddy, smtp, casaos, dex) ships an
+  # arm64 manifest and stays native, so the pin is scoped to just these two
+  # rather than applied stack-wide. Compose loads docker-compose.override.yml
+  # automatically. Re-check with
+  #   docker manifest inspect <image> | grep architecture
+  # and delete this block once both publish arm64.
+  if [[ "$MACOS_MODE" == true && "$(uname -m)" == "arm64" ]]; then
+    echo "[..] Apple Silicon: pinning amd64-only services to linux/amd64..."
+    cat > "$APP_DIR/docker-compose.override.yml" <<'YAML'
+services:
+  casaos-oidc-bridge:
+    platform: linux/amd64
+  auth-registrar:
+    platform: linux/amd64
+YAML
+  else
+    rm -f "$APP_DIR/docker-compose.override.yml"
+  fi
+
   if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP=$(curl -4s --max-time 5 ifconfig.me 2>/dev/null || echo "")
   fi
