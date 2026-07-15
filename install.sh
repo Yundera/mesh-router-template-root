@@ -336,21 +336,39 @@ if [[ "$DESKTOP_MODE" == true ]]; then
   sed -i.bak '/bind:/,/propagation: rshared/d' "$APP_DIR/docker-compose.yml"
   rm -f "$APP_DIR/docker-compose.yml.bak"
 
-  # Apple Silicon: casaos-oidc-bridge and auth-registrar are still published
-  # amd64-only, so Docker Desktop has to run those two under emulation. Every
-  # other image in the stack (tunnel, agent, caddy, smtp, casaos, dex) ships an
-  # arm64 manifest and stays native, so the pin is scoped to just these two
-  # rather than applied stack-wide. Compose loads docker-compose.override.yml
-  # automatically. Re-check with
-  #   docker manifest inspect <image> | grep architecture
-  # and delete this block once both publish arm64.
+  # Apple Silicon: most of the stack has no working arm64 image, so pin the
+  # affected services to linux/amd64 and let Rosetta run them. Two distinct
+  # upstream causes:
+  #
+  #   no arm64 manifest at all:
+  #     casaos-oidc-bridge  (casaos-oidc-bridge:1.0.3)
+  #     auth-registrar      (mesh-auth:1.1.3)
+  #
+  #   arm64 manifest exists but ships amd64 binaries (exec format error):
+  #     casaos              (casa-img:0.4.15-45)
+  #     mesh-router-agent   (mesh-router-agent:1.0.11)
+  #     mesh-router-caddy   (mesh-router-caddy:1.2.3)
+  #     smtp                (mail-gateway:1.0.4)
+  #
+  # mesh-router-tunnel and dex are genuinely multi-arch and stay native.
+  # Verify a service with:
+  #   docker run --rm --entrypoint /bin/sh <image> -c 'uname -m'
+  # and drop it from this list once its arm64 build is correct.
   if [[ "$MACOS_MODE" == true && "$(uname -m)" == "arm64" ]]; then
-    echo "[..] Apple Silicon: pinning amd64-only services to linux/amd64..."
+    echo "[..] Apple Silicon: pinning services without a working arm64 image..."
     cat > "$APP_DIR/docker-compose.override.yml" <<'YAML'
 services:
+  casaos:
+    platform: linux/amd64
   casaos-oidc-bridge:
     platform: linux/amd64
   auth-registrar:
+    platform: linux/amd64
+  mesh-router-agent:
+    platform: linux/amd64
+  mesh-router-caddy:
+    platform: linux/amd64
+  smtp:
     platform: linux/amd64
 YAML
   else
