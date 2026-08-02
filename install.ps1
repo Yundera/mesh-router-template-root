@@ -66,7 +66,15 @@ if (-not $Email) { $Email = "admin@$Domain" }
 $envPath = (($InstallDir -replace '^/c/', 'C:\') -replace '/', '\') + '\.env'
 $DefaultPassword = ""
 if (Test-Path $envPath) {
-    $existing = Select-String -Path $envPath -Pattern '^DEFAULT_PASSWORD=(.*)$' -ErrorAction SilentlyContinue | Select-Object -First 1
+    # DEFAULT_PASSWORD is the pre-rename name. Windows installs run no
+    # self-check and no template sync, so scripts/migrations/ never reaches
+    # them — this fallback is the only thing that carries the secret across the
+    # rename. Without it the first re-run mints a new one and every installed
+    # app's DB password and admin token stop matching.
+    $existing = Select-String -Path $envPath -Pattern '^DEFAULT_PWD=(.*)$' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $existing) {
+        $existing = Select-String -Path $envPath -Pattern '^DEFAULT_PASSWORD=(.*)$' -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
     if ($existing) { $DefaultPassword = $existing.Matches[0].Groups[1].Value }
 }
 if (-not $DefaultPassword) {
@@ -122,12 +130,12 @@ Write-Host "[OK] Windows patches applied" -ForegroundColor Green
 # 7. Write .env
 Write-Host "[..] Writing .env..."
 $envContent = @"
-PROVIDER=$Provider
+PROVIDER_STR=$Provider
 DOMAIN=$Domain
 PUBLIC_IP=$PublicIp
 PUBLIC_IP_DASH=$PublicIpDash
 DATA_ROOT=$DataRoot
-DEFAULT_PASSWORD=$DefaultPassword
+DEFAULT_PWD=$DefaultPassword
 EMAIL=$Email
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080

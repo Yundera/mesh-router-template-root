@@ -1,10 +1,10 @@
 #!/bin/bash
-# Manage the nightly self-check cron entry from MESH_SELF_CHECK_CRON in .env.
+# Manage the nightly self-check cron entry from SELF_CHECK_CRON in .env.
 #
 # Behavior:
-#   - MESH_SELF_CHECK_CRON unset or empty → default "0 3 * * *" (03:00 daily)
-#   - MESH_SELF_CHECK_CRON="disabled"     → no cron entry
-#   - MESH_SELF_CHECK_CRON="<expr>"       → use that 5-field cron expression
+#   - SELF_CHECK_CRON unset or empty → default "0 3 * * *" (03:00 daily)
+#   - SELF_CHECK_CRON="disabled"     → no cron entry
+#   - SELF_CHECK_CRON="<expr>"       → use that 5-field cron expression
 #
 # Nightly only — no @reboot entry by design (the docker stack restarts itself
 # via restart: unless-stopped; the self-check is maintenance, not boot-path).
@@ -38,14 +38,14 @@ fi
 
 chmod +x "$SCRIPT_FILE"
 
-SCHEDULE="${MESH_SELF_CHECK_CRON:-0 3 * * *}"
+SCHEDULE="${SELF_CHECK_CRON:-0 3 * * *}"
 
 # Strip any prior managed entry (lines containing our marker)
 CURRENT=$(crontab -l 2>/dev/null || true)
 FILTERED=$(echo "$CURRENT" | grep -vF "$MARKER" || true)
 
 if [ "$SCHEDULE" = "disabled" ] || [ "$SCHEDULE" = "off" ]; then
-    echo "Nightly self-check disabled (MESH_SELF_CHECK_CRON=$SCHEDULE)"
+    echo "Nightly self-check disabled (SELF_CHECK_CRON=$SCHEDULE)"
     printf '%s\n' "$FILTERED" | crontab -
     exit 0
 fi

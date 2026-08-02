@@ -80,7 +80,7 @@ Container management UI for the PCS instance.
 
 - Web-based Docker management
 - Uses `%REF_DOMAIN%`, `%DATA_ROOT%`, `%DEFAULT_PASSWORD%`
-- First-run account setup handled by CasaOS itself; `DEFAULT_PASSWORD` is the platform secret exposed to installed apps (not the CasaOS login)
+- First-run account setup handled by CasaOS itself; `DEFAULT_PWD` is the platform secret exposed to installed apps (not the CasaOS login)
 - Reachable at `casaos-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants, and the
   `8080-casaos-…` aliases). It is *also* what the root domain points at by default,
   but only because `DEFAULT_SERVICE_HOST=casaos` — it holds no claim on the apex itself
@@ -203,7 +203,8 @@ it entirely — the stack works but stays manual-update.
 ${DATA_ROOT}/AppData/mesh/
 ├── Caddyfile                     # template-owned: base caddy config, bind-mounted read-only
 ├── template/                     # pristine synced copy of this repo
-├── scripts/                      # live scripts (self-check.sh, library/, self-check/)
+├── scripts/                      # live scripts (self-check.sh, library/, self-check/, tools/, migrations/)
+├── migration-markers/            # one marker per applied migration
 ├── log/mesh.log                  # self-check log (logrotate: daily, 7 days)
 └── data/                         # runtime state: certs, caddy
 ```
@@ -213,8 +214,9 @@ ${DATA_ROOT}/AppData/mesh/
 1. **Self-maintenance** — scripts executable, nightly cron entry, logrotate config
 2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
 3. **Template sync** — downloads this repo's channel tarball (`MESH_UPDATE_CHANNEL`,
-   default `stable`), atomically swaps `template/`, copies `docker-compose.yml`,
-   `Caddyfile` and `scripts/` to their live locations (auto-update)
+   default `stable`), runs any pending **migrations** from the downloaded tree, atomically
+   swaps `template/`, copies `docker-compose.yml`, `Caddyfile` and `scripts/` to their live
+   locations (auto-update)
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
    (`ensure-dex.sh`: render config, seed `BRIDGE_SECRET` + break-glass admin), `docker compose pull`, `up -d`
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
@@ -222,16 +224,44 @@ ${DATA_ROOT}/AppData/mesh/
 
 Exit code 0 only if every script succeeded; failures never abort the run early.
 
+The list is read into memory before the loop starts, so the sync in step 3 cannot change what
+runs mid-pass. A **second pass** then re-reads `scripts-config.txt` and runs any entry the
+first pass did not, so a release that adds an ensure-script converges in the same cycle. Newly
+added scripts run after the existing ones regardless of their position in the file; their
+declared order takes effect from the next cycle.
+
+### Migrations
+
+`scripts/migrations/` holds one-shot scripts that adapt an already-installed box to a new
+template version — renaming an `.env` key, dropping a retired service, minting a secret a new
+service needs. `ensure-template-sync.sh` runs them from the **downloaded** tree, before it is
+swapped in and before any file is copied to its live location, so they can prepare state for a
+version that is not on disk yet. A failure aborts the sync with nothing propagated: the box
+stays on its current version.
+
+Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
+`scripts/migrations/README.md` for the naming convention and the rules.
+
 ### Configuration (`.env` keys)
 
 | Key | Default | Purpose |
 |-----|---------|---------|
+| `PROVIDER_STR` | _(required)_ | Provider connection string, `<backend_url>,<userid>,<signature>`. Written by `install.sh --provider` |
+| `DOMAIN` | _(required)_ | This box's domain, e.g. `alice.nsl.sh` |
+| `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
 | `MESH_UPDATE_CHANNEL` | `stable` | Branch this box tracks (`stable` \| `main`). Set at install via `--channel`; the nightly sync honours it |
-| `MESH_SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
+| `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
 | `MESH_TEMPLATE_URL` | _(unset)_ | Full tarball URL that overrides `MESH_UPDATE_CHANNEL` entirely (forks/tags/dev) |
 | `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
 | `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |
+
+`PROVIDER_STR`, `DEFAULT_PWD` and `SELF_CHECK_CRON` were previously named `PROVIDER`,
+`DEFAULT_PASSWORD` and `MESH_SELF_CHECK_CRON`. Existing boxes are renamed in place by
+`scripts/migrations/2026-08-02-01-rename-env-keys.sh` (values are moved, never regenerated);
+`ensure-env-valid.sh` carries the same fix as a fallback for boxes the migration never reaches
+(`MESH_AUTO_UPDATE=false`). The names now match `Yundera/template-root` so the same admin app
+can run against both — see [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md).
 
 Because the compose file and `Caddyfile` are template-owned, **hand-edits to the live
 `docker-compose.yml` or `${DATA_ROOT}/AppData/mesh/Caddyfile` are lost on the next sync** —

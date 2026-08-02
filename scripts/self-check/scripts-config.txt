@@ -3,7 +3,7 @@
 
 # Self-maintenance
 ensure-scripts-executable.sh
-ensure-self-check-cron.sh
+ensure-nightly-self-check.sh
 ensure-logrotate.sh
 
 # Prerequisites

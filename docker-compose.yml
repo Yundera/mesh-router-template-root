@@ -13,7 +13,7 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.src_valid_mark: "1"
     environment:
-      - PROVIDER=${PROVIDER}
+      - PROVIDER=${PROVIDER_STR}
       - ROUTING_TARGET_HOST=mesh-router-caddy
       # Dual-port support for transparent HTTP/HTTPS routing
       - ROUTING_TARGET_PORT_HTTPS=443
@@ -29,7 +29,7 @@ services:
     hostname: mesh-router-agent
     restart: unless-stopped
     environment:
-      - PROVIDER=${PROVIDER}
+      - PROVIDER=${PROVIDER_STR}
       - PUBLIC_IP=${PUBLIC_IP}
       # Dual-port support for transparent HTTP/HTTPS routing
       - TARGET_PORT_HTTPS=443
@@ -83,7 +83,7 @@ services:
       # (host "smtp") and POSTs each email to {backend_url}/router/api/email/send with
       # "userid:signature" as the Bearer credential. mesh-router-backend verifies it and sends
       # from <app>.<user-domain>@<server-domain> (e.g. vaultwarden.alice@nsl.sh).
-      - RELAY_CREDENTIAL=${PROVIDER}
+      - RELAY_CREDENTIAL=${PROVIDER_STR}
       - SMTP_PORT=587
     expose:
       - "587"
@@ -103,15 +103,15 @@ services:
       REF_NET: "pcs"
       REF_PORT: "443"
       REF_SCHEME: "https"
-      default_pwd: "${DEFAULT_PASSWORD}"
+      default_pwd: "${DEFAULT_PWD}"
       public_ip: "${PUBLIC_IP}"
       domain: "${DOMAIN}"
-      PCS_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
+      PCS_DEFAULT_PASSWORD: "${DEFAULT_PWD}"
       PCS_DOMAIN: "${DOMAIN}"
       PCS_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       PCS_PUBLIC_IP: "${PUBLIC_IP}"
       PCS_EMAIL: "${EMAIL}"
-      APP_DEFAULT_PASSWORD: "${DEFAULT_PASSWORD}"
+      APP_DEFAULT_PASSWORD: "${DEFAULT_PWD}"
       APP_DOMAIN: "${DOMAIN}"
       APP_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       APP_PUBLIC_IP: "${PUBLIC_IP}"

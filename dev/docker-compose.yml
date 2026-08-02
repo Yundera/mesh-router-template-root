@@ -24,7 +24,7 @@ services:
         echo '=== Mesh Router Install Script Test Environment ==='
         echo ''
         echo 'Env loaded from .env:'
-        echo "  PROVIDER=$${PROVIDER:0:30}..."
+        echo "  PROVIDER_STR=$${PROVIDER_STR:0:30}..."
         echo "  DOMAIN=$$DOMAIN"
         echo ''
 
@@ -34,7 +34,7 @@ services:
         echo ''
 
         echo 'Run the install script with staging credentials:'
-        echo "  bash /tmp/install.sh --provider \"$$PROVIDER\" --domain \"$$DOMAIN\" --local /tmp/docker-compose-dev.yml"
+        echo "  bash /tmp/install.sh --provider \"$$PROVIDER_STR\" --domain \"$$DOMAIN\" --local /tmp/docker-compose-dev.yml"
         echo ''
         echo 'Inspect results:'
         echo '  cat /DATA/AppData/casaos/apps/mesh/.env'

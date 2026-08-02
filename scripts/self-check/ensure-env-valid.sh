@@ -2,7 +2,7 @@
 # Validate the stack .env and backfill missing optional keys with defaults.
 #
 # Fails (non-zero) only when the stack cannot run: .env missing, or the
-# required PROVIDER / DOMAIN keys are empty. Optional keys are repaired
+# required PROVIDER_STR / DOMAIN keys are empty. Optional keys are repaired
 # in place. User-set values are never overwritten.
 
 set -e
@@ -15,16 +15,41 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-if [ -z "${PROVIDER:-}" ]; then
-    echo "ERROR: PROVIDER is not set in $ENV_FILE"
+FIXED=0
+
+# Key renames (see scripts/migrations/2026-08-02-01-rename-env-keys.sh). The
+# migration is the normal path; this is the self-healing one, for a box whose
+# marker exists but whose .env was later restored from a backup, or where the
+# sync is pinned off (MESH_AUTO_UPDATE=false) so migrations never run. Values
+# are moved, never regenerated — DEFAULT_PWD is the platform secret every
+# installed app derived its credentials from.
+heal_renamed_key() {
+    local old="$1" new="$2" old_val
+    [ -n "$(get_env_value "$new")" ] && return 0
+    old_val="$(get_env_value "$old")"
+    [ -z "$old_val" ] && return 0
+
+    set_env_value "$new" "$old_val"
+    bash "$ENV_MGR" delete "$old" "$ENV_FILE"
+    # Make it visible to the rest of THIS run: common.sh sourced .env before the
+    # rename, so the new name is not in the environment yet.
+    printf -v "$new" '%s' "$old_val"
+    echo "Migrated $old -> $new"
+    FIXED=1
+}
+
+heal_renamed_key PROVIDER             PROVIDER_STR
+heal_renamed_key DEFAULT_PASSWORD     DEFAULT_PWD
+heal_renamed_key MESH_SELF_CHECK_CRON SELF_CHECK_CRON
+
+if [ -z "${PROVIDER_STR:-}" ]; then
+    echo "ERROR: PROVIDER_STR is not set in $ENV_FILE"
     exit 1
 fi
 if [ -z "${DOMAIN:-}" ]; then
     echo "ERROR: DOMAIN is not set in $ENV_FILE"
     exit 1
 fi
-
-FIXED=0
 
 ensure_default() {
     local key="$1" default="$2"
@@ -45,10 +70,10 @@ ensure_default "MESH_AUTO_UPDATE" "true"
 
 # Platform secret consumed by app-store apps. Generate once, never rotate —
 # regenerating would invalidate every app's DB password and admin token.
-if [ -z "$(get_env_value DEFAULT_PASSWORD)" ]; then
+if [ -z "$(get_env_value DEFAULT_PWD)" ]; then
     GENERATED=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
-    set_env_value "DEFAULT_PASSWORD" "$GENERATED"
-    echo "Generated missing DEFAULT_PASSWORD"
+    set_env_value "DEFAULT_PWD" "$GENERATED"
+    echo "Generated missing DEFAULT_PWD"
     FIXED=1
 fi
 

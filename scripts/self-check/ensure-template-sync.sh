@@ -64,6 +64,23 @@ if [ ! -f "$SRC/docker-compose.yml" ] || [ ! -f "$SRC/scripts/self-check.sh" ] |
     exit 1
 fi
 
+# Migrations, from the DOWNLOADED tree, before anything is swapped or copied.
+#
+# This is the only hook that can act in the same cycle as the compose swap:
+# self-check.sh runs the script list it read at startup, so an ensure-script
+# added by this release does not run until pass 2 at the earliest (and its
+# declared ordering not until the next cycle). Work that must land alongside the
+# new docker-compose.yml — minting a secret a new service needs, dropping a
+# removed one, renaming an env key — goes in scripts/migrations/.
+#
+# Running BEFORE the swap is what makes failure cheap: nothing has been
+# propagated, so a non-zero exit just leaves the box on its current version.
+# There is no half-applied tree to restore.
+if [ -d "$SRC/scripts/migrations" ]; then
+    echo "Running migrations from downloaded template..."
+    bash "$SRC/scripts/tools/run-migrations.sh" "$SRC/scripts/migrations"
+fi
+
 # Atomic swap into TEMPLATE_DIR
 rm -rf "${TEMPLATE_DIR}.new"
 mkdir -p "$(dirname "$TEMPLATE_DIR")"

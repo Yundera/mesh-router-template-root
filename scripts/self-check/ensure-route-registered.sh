@@ -2,7 +2,7 @@
 # Check-only: verify the backend has live routes registered for this user.
 # No repair — agent/tunnel re-register on their own refresh loops, and the
 # stack was just (re)started by ensure-stack-up.sh. A failure here after a
-# fresh start means registration is genuinely broken (bad PROVIDER signature,
+# fresh start means registration is genuinely broken (bad PROVIDER_STR signature,
 # backend down, ...) and needs a human.
 
 set -e
@@ -10,20 +10,20 @@ set -e
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 
-if [ -z "${PROVIDER:-}" ]; then
-    echo "ERROR: PROVIDER not set"
+if [ -z "${PROVIDER_STR:-}" ]; then
+    echo "ERROR: PROVIDER_STR not set"
     exit 1
 fi
 
-# PROVIDER format: backend_url,userid,signature
-IFS=',' read -r BACKEND_URL USER_ID _SIG <<< "$PROVIDER"
+# PROVIDER_STR format: backend_url,userid,signature
+IFS=',' read -r BACKEND_URL USER_ID _SIG <<< "$PROVIDER_STR"
 if [ -z "$BACKEND_URL" ] || [ -z "$USER_ID" ]; then
-    echo "ERROR: PROVIDER is malformed (expected backend_url,userid,signature): $PROVIDER"
+    echo "ERROR: PROVIDER_STR is malformed (expected backend_url,userid,signature): $PROVIDER_STR"
     exit 1
 fi
 BACKEND_URL="${BACKEND_URL%/}"
 
-# The PROVIDER backend URL is a bare origin (e.g. https://nsl.sh); the REST API
+# The PROVIDER_STR backend URL is a bare origin (e.g. https://nsl.sh); the REST API
 # is mounted under /router/api — the same prefix the agent/tunnel append (see
 # mesh-router-agent IpRegistrar: `${backendUrl}/router/api/routes/...`).
 API_URL="$BACKEND_URL/router/api"

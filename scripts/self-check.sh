@@ -4,7 +4,7 @@
 # self-check/scripts-config.txt, in order.
 #
 # Triggers:
-#   - nightly cron (installed by ensure-self-check-cron.sh)
+#   - nightly cron (installed by ensure-nightly-self-check.sh)
 #   - manual: sudo bash /DATA/AppData/mesh/scripts/self-check.sh
 #   - install.sh runs it once at the end of installation
 #
@@ -54,22 +54,31 @@ fi
 # Slurp the script list into memory FIRST, then iterate. This stays
 # deterministic even if ensure-template-sync.sh replaces scripts-config.txt
 # mid-run — a naive `while ... done < file` would keep reading the old inode
-# via its open FD. Script updates take effect on the NEXT run.
+# via its open FD.
+read_scripts_config() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "${line// }" ]]; then
+            continue
+        fi
+        line=$(echo "$line" | xargs)
+        [ -n "$line" ] && printf '%s\n' "$line"
+    done < "$1"
+}
+
 SCRIPTS=()
-while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "${line// }" ]]; then
-        continue
-    fi
-    line=$(echo "$line" | xargs)
-    [ -n "$line" ] && SCRIPTS+=("$line")
-done < "$SCRIPTS_CONFIG_FILE"
+while IFS= read -r line; do SCRIPTS+=("$line"); done < <(read_scripts_config "$SCRIPTS_CONFIG_FILE")
 
 OVERALL_FAILED=0
 FAILED_SCRIPTS=()
+RAN=()
 TOTAL=${#SCRIPTS[@]}
 idx=0
-for script_name in "${SCRIPTS[@]}"; do
+
+run_one() {
+    local script_name="$1"
     idx=$((idx + 1))
+    RAN+=("$script_name")
     if [ "$DISPLAY_MODE" -eq 1 ]; then
         if ! execute_script_display "$idx" "$TOTAL" "$SELF_DIR/self-check/$script_name"; then
             OVERALL_FAILED=1
@@ -81,7 +90,44 @@ for script_name in "${SCRIPTS[@]}"; do
             FAILED_SCRIPTS+=("$script_name")
         fi
     fi
+}
+
+for script_name in "${SCRIPTS[@]}"; do
+    run_one "$script_name"
 done
+
+# Second pass. ensure-template-sync.sh may have replaced scripts-config.txt (and
+# the scripts themselves) partway through the loop above, which ran the OLD list
+# from memory. Re-read the config and run whatever it now lists that has not run
+# yet, so a release that ADDS an ensure-script converges in this cycle instead of
+# the next one — otherwise the new docker-compose.yml is already up while the
+# script that provisions what it needs is still a night away.
+#
+# Entries are matched by name, so a script both lists run exactly once. Newly
+# added scripts run after the existing ones regardless of where they sit in the
+# file; their declared order only takes effect from the next cycle. Anything
+# order-critical within the same cycle belongs in scripts/migrations/, which runs
+# before the new tree is even swapped in.
+NEW_SCRIPTS=()
+while IFS= read -r line; do
+    for already in "${RAN[@]}"; do
+        [ "$line" = "$already" ] && continue 2
+    done
+    NEW_SCRIPTS+=("$line")
+done < <(read_scripts_config "$SCRIPTS_CONFIG_FILE")
+
+if [ "${#NEW_SCRIPTS[@]}" -gt 0 ]; then
+    TOTAL=$((idx + ${#NEW_SCRIPTS[@]}))
+    MSG="Template sync added ${#NEW_SCRIPTS[@]} script(s); running them now: ${NEW_SCRIPTS[*]}"
+    if [ "$DISPLAY_MODE" -eq 1 ]; then
+        log_to_file_only "INFO" "$MSG"
+    else
+        log "$MSG"
+    fi
+    for script_name in "${NEW_SCRIPTS[@]}"; do
+        run_one "$script_name"
+    done
+fi
 
 if [ "$DISPLAY_MODE" -eq 1 ]; then
     OK=$((TOTAL - ${#FAILED_SCRIPTS[@]}))

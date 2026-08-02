@@ -3,7 +3,7 @@
 # receive the user's real address via ${APP_EMAIL} instead of the synthetic
 # admin@<domain> fallback that ensure-env-valid.sh backfills.
 #
-# Authenticated by the same Ed25519 signature already in PROVIDER (no new key
+# Authenticated by the same Ed25519 signature already in PROVIDER_STR (no new key
 # material). Best-effort: on ANY failure (backend down, no email on file,
 # malformed response) the existing EMAIL is left untouched — a transient blip
 # must never clobber a good value or break the stack. Runs before the stack
@@ -14,16 +14,16 @@ set -e
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 
-if [ -z "${PROVIDER:-}" ]; then
-    echo "PROVIDER not set; skipping email sync"
+if [ -z "${PROVIDER_STR:-}" ]; then
+    echo "PROVIDER_STR not set; skipping email sync"
     exit 0
 fi
 
-# PROVIDER format: backend_url,userid,signature. backend_url is a bare origin;
+# PROVIDER_STR format: backend_url,userid,signature. backend_url is a bare origin;
 # the REST API lives under /router/api (the same prefix the agent appends).
-IFS=',' read -r BACKEND_URL USER_ID SIG <<< "$PROVIDER"
+IFS=',' read -r BACKEND_URL USER_ID SIG <<< "$PROVIDER_STR"
 if [ -z "$BACKEND_URL" ] || [ -z "$USER_ID" ] || [ -z "$SIG" ]; then
-    echo "PROVIDER malformed; skipping email sync"
+    echo "PROVIDER_STR malformed; skipping email sync"
     exit 0
 fi
 BACKEND_URL="${BACKEND_URL%/}"

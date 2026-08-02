@@ -24,7 +24,7 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 APP_DIR="/DATA/AppData/casaos/apps/mesh"   # CasaOS-visible surface: compose + .env only
 
 # Defaults
-PROVIDER=""
+PROVIDER_STR=""
 DOMAIN=""
 EMAIL_ARG=""
 PUBLIC_IP=""
@@ -64,7 +64,7 @@ EOF
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --provider)  PROVIDER="$2"; shift 2 ;;
+    --provider)  PROVIDER_STR="$2"; shift 2 ;;
     --domain)    DOMAIN="$2"; shift 2 ;;
     --email)     EMAIL_ARG="$2"; shift 2 ;;
     --channel)   CHANNEL="$2"; shift 2 ;;
@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required params
-if [[ -z "$PROVIDER" ]]; then
+if [[ -z "$PROVIDER_STR" ]]; then
   echo "Error: --provider is required"
   usage
 fi
@@ -88,7 +88,7 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 
 # Validate argument *shape* before anything lands in .env.
-# These values are written verbatim into .env (PROVIDER=..., DOMAIN=...), which
+# These values are written verbatim into .env (PROVIDER_STR=..., DOMAIN=...), which
 # is later sourced by bash. An unfilled placeholder like "<SIGNATURE>" — or any
 # other shell metacharacter — turns into a redirect/expansion and aborts the
 # whole stack with the cryptic "syntax error near unexpected token `newline`"
@@ -108,26 +108,26 @@ die_bad_arg() {
   exit 1
 }
 
-# PROVIDER must be exactly: backend_url,userid,signature
+# PROVIDER_STR must be exactly: backend_url,userid,signature
 # Allowlist the characters real values use (URL + base58/base64/hex); anything
 # else (angle brackets, spaces, quotes, $, backticks, ...) is rejected.
-if [[ ! "$PROVIDER" =~ ^[A-Za-z0-9._:/,+=-]+$ ]]; then
-  die_bad_arg provider "$PROVIDER" \
+if [[ ! "$PROVIDER_STR" =~ ^[A-Za-z0-9._:/,+=-]+$ ]]; then
+  die_bad_arg provider "$PROVIDER_STR" \
     "Expected: backend_url,userid,signature" \
     "It contains characters that aren't valid in a provider string."
 fi
-IFS=',' read -r -a _provider_parts <<<"$PROVIDER"
+IFS=',' read -r -a _provider_parts <<<"$PROVIDER_STR"
 if [[ "${#_provider_parts[@]}" -ne 3 ]]; then
-  die_bad_arg provider "$PROVIDER" \
+  die_bad_arg provider "$PROVIDER_STR" \
     "Expected 3 comma-separated fields (backend_url,userid,signature)," \
     "got ${#_provider_parts[@]}."
 fi
 if [[ -z "${_provider_parts[0]}" || -z "${_provider_parts[1]}" || -z "${_provider_parts[2]}" ]]; then
-  die_bad_arg provider "$PROVIDER" \
+  die_bad_arg provider "$PROVIDER_STR" \
     "One of backend_url,userid,signature is empty."
 fi
 if [[ ! "${_provider_parts[0]}" =~ ^https?://[A-Za-z0-9.-]+ ]]; then
-  die_bad_arg provider "$PROVIDER" \
+  die_bad_arg provider "$PROVIDER_STR" \
     "The backend URL (first field) must start with http:// or https://." \
     "Got URL: ${_provider_parts[0]}"
 fi
@@ -135,7 +135,7 @@ fi
 for _f in "${_provider_parts[@]}"; do
   case "$(printf '%s' "$_f" | tr '[:upper:]' '[:lower:]')" in
     signature|userid|user-id|user_id|your-signature|your-userid|changeme|placeholder|todo|xxx)
-      die_bad_arg provider "$PROVIDER" \
+      die_bad_arg provider "$PROVIDER_STR" \
         "Still contains a placeholder field ('${_f}')." \
         "Generate your real userid/signature before installing." ;;
   esac
@@ -291,21 +291,28 @@ if [[ "$WINDOWS_MODE" == true ]]; then
 
   # Platform secret consumed by app-store apps. Preserve across reruns —
   # regenerating would invalidate every app's DB password and admin token.
-  DEFAULT_PASSWORD=""
+  # DEFAULT_PASSWORD is the pre-rename name. This path is the ONLY thing that
+  # migrates it on Windows: there is no self-check and no template sync here, so
+  # scripts/migrations/ never runs. Missing the fallback would regenerate the
+  # secret on the first re-run after the rename and break every installed app.
+  DEFAULT_PWD=""
   if [[ -f "$APP_DIR/.env" ]]; then
-    DEFAULT_PASSWORD=$(grep -E '^DEFAULT_PASSWORD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
+    DEFAULT_PWD=$(grep -E '^DEFAULT_PWD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
+    if [[ -z "$DEFAULT_PWD" ]]; then
+      DEFAULT_PWD=$(grep -E '^DEFAULT_PASSWORD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
+    fi
   fi
-  if [[ -z "$DEFAULT_PASSWORD" ]]; then
-    DEFAULT_PASSWORD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
+  if [[ -z "$DEFAULT_PWD" ]]; then
+    DEFAULT_PWD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
   fi
 
   cat > "$APP_DIR/.env" <<EOF
-PROVIDER=${PROVIDER}
+PROVIDER_STR=${PROVIDER_STR}
 DOMAIN=${DOMAIN}
 PUBLIC_IP=${PUBLIC_IP}
 PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
 DATA_ROOT=${DATA_ROOT}
-DEFAULT_PASSWORD=${DEFAULT_PASSWORD}
+DEFAULT_PWD=${DEFAULT_PWD}
 EMAIL=${EMAIL}
 DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
@@ -343,14 +350,14 @@ fi
 
 # ---------------------------------------------------------------------------
 # Linux: write a MINIMAL .env (only what self-check can't derive) and hand off.
-# ensure-env-valid backfills DEFAULT_PASSWORD, service host/port, PUID/PGID, and
+# ensure-env-valid backfills DEFAULT_PWD, service host/port, PUID/PGID, and
 # EMAIL; ensure-public-ip detects PUBLIC_IP; ensure-template-sync owns compose.
 # ---------------------------------------------------------------------------
 echo "[..] Writing .env (preserving existing keys on re-run)..."
 ENV_FILE="$APP_DIR/.env"
 env_set() {
   # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
-  # is what keeps DEFAULT_PASSWORD (and anything ensure-env-valid backfilled)
+  # is what keeps DEFAULT_PWD (and anything ensure-env-valid backfilled)
   # intact when the installer is re-run to update — regenerating the platform
   # secret would invalidate every app's DB password and admin token.
   local key="$1" value="$2" tmp
@@ -365,7 +372,7 @@ env_set() {
   chown "${PUID}:${PGID}" "$tmp" 2>/dev/null || true
   mv "$tmp" "$ENV_FILE"
 }
-env_set PROVIDER "$PROVIDER"
+env_set PROVIDER_STR "$PROVIDER_STR"
 env_set DOMAIN "$DOMAIN"
 env_set DATA_ROOT "$DATA_ROOT"
 env_set MESH_AUTO_UPDATE "$MESH_AUTO_UPDATE"

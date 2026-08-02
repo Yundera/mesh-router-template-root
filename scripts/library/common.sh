@@ -8,13 +8,41 @@
 APP_DIR="/DATA/AppData/casaos/apps/mesh"
 ENV_FILE="$APP_DIR/.env"
 
-# Load the stack .env (PROVIDER, DOMAIN, DATA_ROOT, MESH_AUTO_UPDATE, ...).
-if [ -f "$ENV_FILE" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-    set +a
-fi
+# Load the stack .env (PROVIDER_STR, DOMAIN, DATA_ROOT, MESH_AUTO_UPDATE, ...).
+#
+# Parsed, NOT sourced. The .env is the one user-owned file in this layout, and
+# `source` executes it: a value with a space in it — `SELF_CHECK_CRON=0 3 * * *`
+# is the obvious one, and it is exactly what the old writer produced — parses as
+# an assignment followed by a command, fails, and takes down every script that
+# sources this file, since they all run under `set -e`. That turned a hand-edit
+# into a box that silently stops self-checking (and, once migrations run here,
+# stops updating).
+#
+# Same rules docker compose applies to a .env, so the two agree on what a value
+# is: split on the first `=`, ignore blanks/comments and non-identifier keys,
+# strip at most one layer of surrounding quotes. No expansion, no execution.
+load_env_file() {
+    local file="$1" line key value
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"          # tolerate a .env saved with CRLF
+        case "$line" in ''|'#'*) continue ;; esac
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        if [ "${#value}" -ge 2 ]; then
+            case "$value" in
+                \"*\") value="${value:1:${#value}-2}" ;;
+                \'*\') value="${value:1:${#value}-2}" ;;
+            esac
+        fi
+        printf -v "$key" '%s' "$value"
+        export "${key?}"
+    done < "$file"
+}
+
+load_env_file "$ENV_FILE"
 
 MESH_ROOT="${DATA_ROOT:-/DATA}/AppData/mesh"
 SCRIPTS_DIR="$MESH_ROOT/scripts"
@@ -32,26 +60,27 @@ check_root() {
     fi
 }
 
+# .env accessors. Both delegate to tools/env-file-manager.sh, which writes
+# atomically AND restores the file's pre-existing mode and owner afterwards.
+# That last part is load-bearing: the .env is owned by PUID:PGID (the dashboard
+# uid) so the dashboard can read it and group the stack, rather than showing the
+# mesh containers as individual "External Apps". The hand-rolled mktemp+mv this
+# replaced re-chowned the file to whoever ran the script — root, under cron.
+ENV_MGR="$_COMMON_DIR/../tools/env-file-manager.sh"
+
 # Read KEY from the stack .env (raw value, empty if absent).
 get_env_value() {
-    [ -f "$ENV_FILE" ] || return 0
-    grep -E "^${1}=" "$ENV_FILE" | head -n1 | cut -d= -f2-
+    bash "$ENV_MGR" get "$1" "$ENV_FILE"
 }
 
-# Set KEY=VALUE in the stack .env (atomic: temp file + mv, preserves 600).
-# The file is owned by PUID:PGID (the CasaOS uid) so CasaOS can read it and
-# group the stack in its dashboard — root:root 0600 would be unreadable to it,
-# leaving the mesh containers shown as individual "External Apps".
+# Set KEY=VALUE in the stack .env.
 set_env_value() {
-    local key="$1" value="$2" tmp
-    tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
-    if [ -f "$ENV_FILE" ]; then
-        grep -v -E "^${key}=" "$ENV_FILE" > "$tmp" || true
+    # A first-ever write has no file to inherit metadata from, so seed it here.
+    if [ ! -f "$ENV_FILE" ]; then
+        install -m 600 -o "${PUID:-1000}" -g "${PGID:-1000}" /dev/null "$ENV_FILE" 2>/dev/null \
+            || { touch "$ENV_FILE"; chmod 600 "$ENV_FILE"; }
     fi
-    printf '%s=%s\n' "$key" "$value" >> "$tmp"
-    chmod 600 "$tmp"
-    chown "${PUID:-1000}:${PGID:-1000}" "$tmp" 2>/dev/null || true
-    mv "$tmp" "$ENV_FILE"
+    bash "$ENV_MGR" set "$1" "$2" "$ENV_FILE"
 }
 
 # Resolve the template tarball URL from the configured update channel.
