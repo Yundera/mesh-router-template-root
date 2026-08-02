@@ -91,11 +91,25 @@ foreach ($dir in $dirs) {
 }
 Write-Host "[OK] Install dir: $InstallDir" -ForegroundColor Green
 
-# 5. Download docker-compose.yml
+# 5. Download docker-compose.yml + base Caddyfile
 Write-Host "[..] Downloading docker-compose.yml..."
 $composePath = ($InstallDir -replace '^/c/', 'C:\') -replace '/', '\'
 Invoke-RestMethod -Uri "$RepoBase/docker-compose.yml" -OutFile "$composePath\docker-compose.yml"
 Write-Host "[OK] docker-compose.yml downloaded" -ForegroundColor Green
+
+# The compose file bind-mounts ${DATA_ROOT}/AppData/mesh/Caddyfile into
+# mesh-router-caddy. It must exist as a FILE before `docker compose up`, or
+# Docker Desktop creates a directory there and Caddy fails to start.
+Write-Host "[..] Downloading base Caddyfile..."
+$meshRoot = (("$DataRoot/AppData/mesh") -replace '^/c/', 'C:\') -replace '/', '\'
+if (-not (Test-Path $meshRoot)) {
+    New-Item -ItemType Directory -Path $meshRoot -Force | Out-Null
+}
+if (Test-Path "$meshRoot\Caddyfile" -PathType Container) {
+    Remove-Item "$meshRoot\Caddyfile" -Recurse -Force
+}
+Invoke-RestMethod -Uri "$RepoBase/Caddyfile" -OutFile "$meshRoot\Caddyfile"
+Write-Host "[OK] Caddyfile downloaded" -ForegroundColor Green
 
 # 6. Patch docker-compose.yml for Windows
 Write-Host "[..] Patching docker-compose for Windows..."

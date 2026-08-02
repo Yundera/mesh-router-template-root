@@ -229,8 +229,8 @@ download_template() {
   mkdir -p "$tmp/extract"
   tar -xzf "$tmp/template.tar.gz" -C "$tmp/extract"
   local src; src=$(find "$tmp/extract" -mindepth 1 -maxdepth 1 -type d | head -n1)
-  if [[ -z "$src" || ! -f "$src/docker-compose.yml" || ! -f "$src/scripts/self-check.sh" ]]; then
-    echo "Error: downloaded template is incomplete (missing compose or self-check.sh)" >&2
+  if [[ -z "$src" || ! -f "$src/docker-compose.yml" || ! -f "$src/scripts/self-check.sh" || ! -f "$src/Caddyfile" ]]; then
+    echo "Error: downloaded template is incomplete (missing compose, Caddyfile or self-check.sh)" >&2
     rm -rf "$tmp"
     exit 1
   fi
@@ -242,18 +242,26 @@ download_template() {
 }
 
 # 3. Copy template into place (compose + scripts)
+# The base Caddyfile is deliberately NOT placed here on the Linux path: it is
+# template-owned, and the self-check below propagates it
+# (ensure-template-sync.sh) or restores it from template/ when the sync was
+# skipped or failed (ensure-stack-up.sh). All this needs to guarantee is that
+# template/ contains a copy. --windows is the exception — it runs no self-check
+# and brings the stack up itself, so it places the file explicitly.
 if [[ -n "$LOCAL_COMPOSE" ]]; then
   src_dir=$(cd "$(dirname "$LOCAL_COMPOSE")" && pwd)
   if [[ -d "$src_dir/scripts" ]]; then
     echo "[..] Copying template from $src_dir..."
     cp "$LOCAL_COMPOSE" "$APP_DIR/docker-compose.yml"
     cp -a "$src_dir/scripts/." "$SCRIPTS_DIR/"
-    # Mirror compose + scripts into template/ for layout consistency (local mode
-    # has auto-update off, so template/ is reference-only and never re-synced).
+    # Mirror compose + Caddyfile + scripts into template/ for layout consistency
+    # (local mode has auto-update off, so template/ is reference-only and never
+    # re-synced).
     mkdir -p "$TEMPLATE_DIR/scripts"
     cp "$LOCAL_COMPOSE" "$TEMPLATE_DIR/docker-compose.yml"
     cp -a "$src_dir/scripts/." "$TEMPLATE_DIR/scripts/"
-    echo "[OK] Template + scripts copied from $src_dir/scripts"
+    cp "$src_dir/Caddyfile" "$TEMPLATE_DIR/Caddyfile"
+    echo "[OK] Template + Caddyfile + scripts copied from $src_dir"
   else
     echo "[..] No scripts/ beside $LOCAL_COMPOSE — fetching template from CDN..."
     download_template
@@ -309,6 +317,15 @@ EOF
   chmod 600 "$APP_DIR/.env"
   chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
   echo "[OK] .env written"
+
+  # No self-check on this path, so nothing else will place the base Caddyfile
+  # that the compose file bind-mounts into mesh-router-caddy. Docker would
+  # materialise the missing bind source as a directory and Caddy would not
+  # start. On Linux this is handled by ensure-template-sync/ensure-stack-up.
+  if [[ -d "$MESH_ROOT/Caddyfile" ]]; then
+    rm -rf "$MESH_ROOT/Caddyfile"
+  fi
+  cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 
   echo "[..] Restarting stack (clean down then up)..."
   cd "$APP_DIR"

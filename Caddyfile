@@ -1,0 +1,119 @@
+# =============================================================================
+# CADDY CONFIGURATION - Mesh Router Template
+# =============================================================================
+# Container routing is handled via Docker labels (caddy-docker-proxy).
+# This file defines global config, reusable snippets, and the root-domain
+# routes only.
+#
+# Template-owned: overwritten by ensure-template-sync.sh on every sync. Live
+# copy lives at ${DATA_ROOT}/AppData/mesh/Caddyfile and is bind-mounted into
+# mesh-router-caddy at /etc/caddy/Caddyfile. The sync copies in place (cp, not
+# mv) on purpose — a single-file bind mount pins the inode, so an atomic
+# replace would leave the container reading the old file forever and the
+# entrypoint's inotify watcher would never fire.
+#
+# Mirrors Yundera/template-root's root/Caddyfile. Keep the two aligned.
+# =============================================================================
+
+{
+    log {
+        output stdout
+        format console
+    }
+
+    # Let's Encrypt email for certificate registration (used for sslip.io domains)
+    email {$PCS_EMAIL}
+
+    # Pin ACME to Let's Encrypt only. ZeroSSL was the default fallback and was
+    # failing every attempt with "Invalid signature on JWS request", doubling
+    # the failed-obtain rate for no benefit. With one healthy issuer we still
+    # tolerate LE outages via the internal-CA fallback below.
+    acme_ca https://acme-v02.api.letsencrypt.org/directory
+
+    # Default issuer chain for any site without an explicit `tls` directive —
+    # in practice that's all *.sslip.io labels (including ones emitted by
+    # third-party app compose files we don't control). Caddy tries LE first;
+    # when it fails (rate limits, malformed hostnames from empty
+    # ${PUBLIC_IP_DASH} interpolation, etc.) it falls through to the internal
+    # CA and issues a self-signed cert. Browsers warn on self-signed, but
+    # nobody is hitting the malformed hostnames anyway — the point is to
+    # break the every-5-minutes ACME retry storm that pegs Caddy's CPU.
+    #
+    # 168h leaf lifetime → Caddy renews each host every ~4-5 days instead of
+    # retrying ACME every 5 minutes per host. Bounds CPU even at 100+
+    # services with broken labels: ~22 cert renewals/day total, vs. the
+    # previous ~28 800/day storm. Stays inside the 7-day default lifetime of
+    # the internal intermediate CA, so we don't need `sign_with_root`.
+    cert_issuer acme
+    cert_issuer internal {
+        lifetime 168h
+    }
+}
+
+# Custom CA TLS for gateway-routed and nip.io domains
+# Gateway trusts this CA, so no LE needed for these routes
+# nip.io domains also use this custom CA for consistency
+(gateway_tls) {
+    # Restore original host when request comes through CF worker
+    # The CF worker rewrites Host to nip.io for routing, but preserves
+    # the original nsl.sh domain in X-Original-Host. Restoring it ensures
+    # apps generate correct redirect URLs and cookie domains.
+    @has_original_host header X-Original-Host *
+    request_header @has_original_host Host {http.request.header.X-Original-Host}
+    tls /certs/cert.pem /certs/key.pem
+}
+
+# =============================================================================
+# ROOT DOMAIN ROUTING - Configurable default service
+# =============================================================================
+# This file is the ONLY definition of the three root addresses. No container
+# may claim ${DOMAIN} / ${PUBLIC_IP_DASH}.nip.io / ${PUBLIC_IP_DASH}.sslip.io
+# via a caddy_* label — caddy-docker-proxy merges same-address site blocks, so
+# a second claim silently produces a site with two reverse_proxy handlers and
+# the knob below stops meaning anything. Every service, casaos included, gets
+# its own <name>-${DOMAIN} hostname instead.
+#
+# Configure via /DATA/AppData/casaos/apps/mesh/.env:
+#   DEFAULT_SERVICE_HOST=casaos   (container name, or host.docker.internal for host ports)
+#   DEFAULT_SERVICE_PORT=8080     (port the service listens on)
+#
+# The target container must be attached to the `pcs` network — Caddy resolves
+# it by Docker DNS. A host that is not on `pcs` (or a typo) yields a 502 on the
+# root domain with nothing else to indicate why.
+#
+# CasaOS stays reachable at casaos-${DOMAIN} regardless of this setting.
+# =============================================================================
+
+# Root domain via gateway (custom CA)
+{$DOMAIN} {
+    import gateway_tls
+    reverse_proxy {$DEFAULT_SERVICE_HOST}:{$DEFAULT_SERVICE_PORT}
+}
+
+# Root domain via nip.io (custom CA)
+{$PUBLIC_IP_DASH}.nip.io {
+    import gateway_tls
+    reverse_proxy {$DEFAULT_SERVICE_HOST}:{$DEFAULT_SERVICE_PORT}
+}
+
+# Root domain via sslip.io (Let's Encrypt)
+{$PUBLIC_IP_DASH}.sslip.io {
+    reverse_proxy {$DEFAULT_SERVICE_HOST}:{$DEFAULT_SERVICE_PORT}
+}
+
+# =============================================================================
+# CUSTOM DOMAIN CATCH-ALL
+# =============================================================================
+# NOTE: A catch-all block here would be dropped by caddy-docker-proxy during
+# config regeneration. The mesh-router-caddy entrypoint injects the equivalent
+# via the Admin API instead, re-checking every CATCHALL_CHECK_INTERVAL seconds:
+#   1. cert0 (gateway CA) on the no-SNI-match TLS connection policy
+#   2. a *.sslip.io passthrough policy ordered ahead of it, so sslip hosts keep
+#      serving their Let's Encrypt cert
+#   3. a terminal catch-all HTTP route to DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT,
+#      tagged with the X-Mesh-Catchall response header
+#
+# So DEFAULT_SERVICE_HOST governs both the three root addresses above and any
+# unrecognised domain pointed at this box. Documented here only — see
+# mesh-router-caddy/entrypoint.sh for the implementation.
+# =============================================================================

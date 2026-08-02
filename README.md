@@ -42,6 +42,37 @@ Reverse proxy with automatic SSL certificate management.
 - Uses [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker-proxy)
 - Discovers services via Docker labels
 - Handles TLS termination
+- Base config comes from this repo's `Caddyfile`, synced to
+  `${DATA_ROOT}/AppData/mesh/Caddyfile` and bind-mounted at `/etc/caddy/Caddyfile`.
+  It holds the global options, the `(gateway_tls)` snippet, and the three
+  **root-domain** routes — see [Root domain routing](#root-domain-routing).
+
+#### Root domain routing
+
+The three root addresses — `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io`,
+`${PUBLIC_IP_DASH}.sslip.io` — are defined **only** in the `Caddyfile`, and point at
+whatever `DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT` names in `.env` (default
+`casaos:8080`). The same pair is also the target of the custom-domain catch-all
+that `mesh-router-caddy` injects via its Admin API.
+
+To hand the root domain to an installed app:
+
+```bash
+# /DATA/AppData/casaos/apps/mesh/.env
+DEFAULT_SERVICE_HOST=my-app     # container name, or host.docker.internal for a host port
+DEFAULT_SERVICE_PORT=3000
+```
+
+then `cd /DATA/AppData/casaos/apps/mesh && docker compose up -d`.
+
+- The target container **must be attached to the `pcs` network** — Caddy resolves it by
+  Docker DNS. A container that isn't on `pcs`, or a typo, gives a 502 on the root domain
+  and nothing else to explain it.
+- **No container may claim a root address via a `caddy_*` label.** caddy-docker-proxy
+  merges site blocks that share an address, so a second claim leaves the apex with two
+  `reverse_proxy` handlers and makes this setting meaningless. Services get their own
+  `<name>-${DOMAIN}` hostname instead.
+- CasaOS stays reachable at `casaos-${DOMAIN}` whatever this is set to.
 
 ### casaos
 
@@ -50,7 +81,9 @@ Container management UI for the PCS instance.
 - Web-based Docker management
 - Uses `%REF_DOMAIN%`, `%DATA_ROOT%`, `%DEFAULT_PASSWORD%`
 - First-run account setup handled by CasaOS itself; `DEFAULT_PASSWORD` is the platform secret exposed to installed apps (not the CasaOS login)
-- Accessible via the user's domain
+- Reachable at `casaos-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants, and the
+  `8080-casaos-…` aliases). It is *also* what the root domain points at by default,
+  but only because `DEFAULT_SERVICE_HOST=casaos` — it holds no claim on the apex itself
 
 ### dex / casaos-oidc-bridge / auth-registrar (SSO)
 
@@ -168,6 +201,7 @@ it entirely — the stack works but stays manual-update.
 └── .env                          # user-owned: never touched by auto-update
 
 ${DATA_ROOT}/AppData/mesh/
+├── Caddyfile                     # template-owned: base caddy config, bind-mounted read-only
 ├── template/                     # pristine synced copy of this repo
 ├── scripts/                      # live scripts (self-check.sh, library/, self-check/)
 ├── log/mesh.log                  # self-check log (logrotate: daily, 7 days)
@@ -179,8 +213,8 @@ ${DATA_ROOT}/AppData/mesh/
 1. **Self-maintenance** — scripts executable, nightly cron entry, logrotate config
 2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
 3. **Template sync** — downloads this repo's channel tarball (`MESH_UPDATE_CHANNEL`,
-   default `stable`), atomically swaps `template/`, copies `docker-compose.yml` and
-   `scripts/` to their live locations (auto-update)
+   default `stable`), atomically swaps `template/`, copies `docker-compose.yml`,
+   `Caddyfile` and `scripts/` to their live locations (auto-update)
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
    (`ensure-dex.sh`: render config, seed `BRIDGE_SECRET` + break-glass admin), `docker compose pull`, `up -d`
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
@@ -196,9 +230,13 @@ Exit code 0 only if every script succeeded; failures never abort the run early.
 | `MESH_UPDATE_CHANNEL` | `stable` | Branch this box tracks (`stable` \| `main`). Set at install via `--channel`; the nightly sync honours it |
 | `MESH_SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
 | `MESH_TEMPLATE_URL` | _(unset)_ | Full tarball URL that overrides `MESH_UPDATE_CHANNEL` entirely (forks/tags/dev) |
+| `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
+| `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |
 
-Because the compose file is template-owned, **hand-edits to the live `docker-compose.yml` are
-lost on the next sync** — pin with `MESH_AUTO_UPDATE=false` if you need local changes.
+Because the compose file and `Caddyfile` are template-owned, **hand-edits to the live
+`docker-compose.yml` or `${DATA_ROOT}/AppData/mesh/Caddyfile` are lost on the next sync** —
+pin with `MESH_AUTO_UPDATE=false` if you need local changes. `.env` is the supported knob:
+it is only ever backfilled, never overwritten.
 
 ### Manual run
 

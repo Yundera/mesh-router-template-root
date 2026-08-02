@@ -40,7 +40,7 @@ services:
       pcs: null
 
   mesh-router-caddy:
-    image: ghcr.io/yundera/mesh-router-caddy:1.2.3
+    image: ghcr.io/yundera/mesh-router-caddy:1.2.5
     container_name: mesh-router-caddy
     hostname: mesh-router-caddy
     restart: unless-stopped
@@ -49,6 +49,14 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Template-owned base config (global options, (gateway_tls), root-domain
+      # routes). Mounted rather than using the image's baked copy so root-domain
+      # behaviour can change with a template sync instead of an image bump —
+      # same arrangement as Yundera/template-root. ensure-template-sync.sh puts
+      # the file here BEFORE ensure-stack-up.sh runs; if it is ever missing,
+      # Docker would create a directory at this path and Caddy would fail to
+      # start, so both the sync and install.sh treat it as a required file.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/certs:/certs:ro
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/caddy/data:/data
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/caddy/config:/config
@@ -119,9 +127,22 @@ services:
     networks:
       pcs: null
     labels:
-      caddy_0: ${DOMAIN}
+      # Standard domains with custom CA (gateway-routed)
+      caddy_0: 8080-casaos-${DOMAIN}, casaos-${DOMAIN}
       caddy_0.import: gateway_tls
       caddy_0.reverse_proxy: "{{upstreams 8080}}"
+      # nip.io variants for direct access (custom CA)
+      caddy_1: 8080-casaos-${PUBLIC_IP_DASH}.nip.io, casaos-${PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 8080}}"
+      # sslip.io variants for direct access (Let's Encrypt)
+      caddy_2: 8080-casaos-${PUBLIC_IP_DASH}.sslip.io, casaos-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 8080}}"
+      # NOTE: Root domains (${DOMAIN}, ${PUBLIC_IP_DASH}.nip.io, ${PUBLIC_IP_DASH}.sslip.io)
+      # are handled in Caddyfile with configurable DEFAULT_SERVICE_HOST/PORT.
+      # casaos MUST NOT claim them here: caddy-docker-proxy merges same-address
+      # site blocks, so a second claim leaves the apex with two reverse_proxy
+      # handlers and makes DEFAULT_SERVICE_HOST unusable.
     volumes:
       - type: bind
         source: ${DATA_ROOT:-/DATA}
