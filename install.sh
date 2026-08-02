@@ -14,9 +14,11 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 #     | sudo -E bash -s -- --provider "https://nsl.sh/router/api,userid,signature" \
 #       --domain alice.nsl.sh [--email you@example.com]
 #
-# Installs track the 'stable' channel by default. Add --channel main to follow
-# the development branch instead; the choice is persisted (MESH_UPDATE_CHANNEL in
-# .env) so the nightly self-check keeps updating from the same channel.
+# Installs track the 'stable' branch by default. Add --channel main to follow the
+# development branch, or --update-url for an arbitrary tarball. Either way the
+# resolved FULL URL is persisted as UPDATE_URL in .env, so the nightly self-check
+# keeps updating from the same source. UPDATE_URL is the same key name and shape
+# Yundera/template-root uses — see doc/alignment-with-template-root.md.
 #
 # Windows/WSL (--windows) installs are Linux-self-check-incompatible (cron,
 # logrotate, apt) and stay on a direct one-shot path: compose up, no auto-update.
@@ -31,7 +33,8 @@ PUBLIC_IP=""
 DATA_ROOT="/DATA"
 LOCAL_COMPOSE=""
 WINDOWS_MODE=false
-CHANNEL="stable"   # update channel: stable | main (overridden by MESH_TEMPLATE_URL)
+CHANNEL="stable"   # convenience: resolved to a branch URL unless --update-url is given
+UPDATE_URL_ARG=""  # explicit full tarball URL; wins over --channel
 PUID="1000"
 PGID="1000"
 
@@ -48,8 +51,10 @@ Required:
 
 Options:
   --email       Account email exposed to installed apps (default: admin@<domain>)
-  --channel     Update channel: stable (default) or main (development branch).
-                Persisted to .env so nightly updates follow the same channel.
+  --channel     Update branch: stable (default) or main (development branch).
+                Resolved to a full URL and persisted as UPDATE_URL in .env.
+  --update-url  Full template tarball URL (.tar.gz), for forks/tags/mirrors.
+                Overrides --channel. Persisted as UPDATE_URL.
   --public-ip   Server public IP (auto-detected by self-check if omitted)
   --data-root   Data storage path (default: /DATA)
   --local       Path to a local docker-compose.yml (also pulls scripts/ beside
@@ -67,7 +72,8 @@ while [[ $# -gt 0 ]]; do
     --provider)  PROVIDER_STR="$2"; shift 2 ;;
     --domain)    DOMAIN="$2"; shift 2 ;;
     --email)     EMAIL_ARG="$2"; shift 2 ;;
-    --channel)   CHANNEL="$2"; shift 2 ;;
+    --channel)    CHANNEL="$2"; shift 2 ;;
+    --update-url) UPDATE_URL_ARG="$2"; shift 2 ;;
     --public-ip) PUBLIC_IP="$2"; shift 2 ;;
     --data-root) DATA_ROOT="$2"; shift 2 ;;
     --local)     LOCAL_COMPOSE="$2"; shift 2 ;;
@@ -161,10 +167,20 @@ if [[ ! "$CHANNEL" =~ ^[A-Za-z0-9._/-]+$ ]]; then
 fi
 
 # Resolve the template tarball source. Precedence mirrors common.sh's
-# mesh_template_url() (keep them in sync): an explicit MESH_TEMPLATE_URL full-URL
-# override wins, otherwise build the URL from the chosen channel. This bootstrap
-# can't source common.sh — the library isn't on disk yet.
-TARBALL_URL="${MESH_TEMPLATE_URL:-https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL}.tar.gz}"
+# mesh_template_url() — keep the two in sync; this bootstrap cannot source the
+# library because it is not on disk yet.
+#   --update-url > UPDATE_URL from the env > MESH_TEMPLATE_URL (deprecated) > --channel
+# The resolved value is what gets written to .env as UPDATE_URL further down, so
+# the box keeps updating from whatever this install chose.
+TARBALL_URL="$UPDATE_URL_ARG"
+[[ -z "$TARBALL_URL" ]] && TARBALL_URL="${UPDATE_URL:-}"
+[[ -z "$TARBALL_URL" ]] && TARBALL_URL="${MESH_TEMPLATE_URL:-}"
+[[ -z "$TARBALL_URL" ]] && TARBALL_URL="https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL}.tar.gz"
+
+if [[ "$TARBALL_URL" == *.zip ]]; then
+  die_bad_arg update-url "$TARBALL_URL" \
+    "This template is distributed as .tar.gz and extracts with tar. Use the .tar.gz form."
+fi
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this installer must run as root." >&2
@@ -319,7 +335,7 @@ DEFAULT_SERVICE_PORT=8080
 PUID=${PUID}
 PGID=${PGID}
 MESH_AUTO_UPDATE=false
-MESH_UPDATE_CHANNEL=${CHANNEL}
+UPDATE_URL=${TARBALL_URL}
 EOF
   chmod 600 "$APP_DIR/.env"
   chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
@@ -376,7 +392,15 @@ env_set PROVIDER_STR "$PROVIDER_STR"
 env_set DOMAIN "$DOMAIN"
 env_set DATA_ROOT "$DATA_ROOT"
 env_set MESH_AUTO_UPDATE "$MESH_AUTO_UPDATE"
-env_set MESH_UPDATE_CHANNEL "$CHANNEL"
+env_set UPDATE_URL "$TARBALL_URL"
+# Mirror into the DEPRECATED key, same reasoning as the -02- migration: pre-rename
+# code reads MESH_TEMPLATE_URL and cannot see UPDATE_URL, so a box rolled back to
+# an older tree would otherwise lose its source and silently fall back to stable.
+# Both carry the same URL for one release; MESH_TEMPLATE_URL goes with the other
+# transition shims. MESH_UPDATE_CHANNEL is dropped now — old code prefers
+# MESH_TEMPLATE_URL over it, so it can no longer have any effect.
+env_set MESH_TEMPLATE_URL "$TARBALL_URL"
+sed -i -E '/^MESH_UPDATE_CHANNEL=/d' "$ENV_FILE"
 [[ -n "$EMAIL_ARG" ]] && env_set EMAIL "$EMAIL_ARG"
 [[ -n "$PUBLIC_IP" ]] && env_set PUBLIC_IP "$PUBLIC_IP"
 echo "[OK] .env written"

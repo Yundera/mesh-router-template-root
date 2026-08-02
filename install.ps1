@@ -141,7 +141,8 @@ DEFAULT_SERVICE_HOST=casaos
 DEFAULT_SERVICE_PORT=8080
 PUID=0
 PGID=0
-MESH_UPDATE_CHANNEL=$Channel
+UPDATE_URL=https://github.com/yundera/mesh-router-template-root/archive/refs/heads/$Channel.tar.gz
+MESH_TEMPLATE_URL=https://github.com/yundera/mesh-router-template-root/archive/refs/heads/$Channel.tar.gz
 "@
 Set-Content -Path "$composePath\.env" -Value $envContent -NoNewline
 Write-Host "[OK] .env written" -ForegroundColor Green

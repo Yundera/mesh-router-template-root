@@ -101,23 +101,42 @@ set_env_value() {
     bash "$ENV_MGR" set "$1" "$2" "$ENV_FILE"
 }
 
-# Resolve the template tarball URL from the configured update channel.
+# Default branch when nothing is configured.
+MESH_DEFAULT_CHANNEL="stable"
+mesh_channel_url() {
+    printf 'https://github.com/yundera/mesh-router-template-root/archive/refs/heads/%s.tar.gz\n' "$1"
+}
+
+# Resolve the template tarball URL.
+#
+# UPDATE_URL is the canonical key and holds a FULL URL — the same name and shape
+# Yundera/template-root uses, and the same one settings-center-app's
+# /api/admin/update-channel reads and writes via env-file-manager. Aligning on it
+# is what lets that panel drive this template unmodified (alignment doc, phase 4).
 #
 # Precedence (highest first):
-#   1. MESH_TEMPLATE_URL — explicit full URL override (forks, tags, custom builds).
-#   2. MESH_UPDATE_CHANNEL — a branch/channel name (stable | main | <other>).
-#   3. default: stable.
+#   1. UPDATE_URL          — canonical, full URL.
+#   2. MESH_TEMPLATE_URL   — DEPRECATED alias, same meaning. Migrated by
+#                            scripts/migrations/2026-08-02-02-rename-update-url.sh.
+#   3. MESH_UPDATE_CHANNEL — DEPRECATED branch name; expanded to a branch URL.
+#   4. default: the stable branch.
 #
-# Both vars come from the stack .env (sourced above), so a channel chosen at
-# install time is honoured by the nightly self-check without any extra wiring.
-# install.sh carries an inline copy of this logic because it bootstraps before
-# this library is on disk — keep the two in sync.
+# The two deprecated keys are read for one release so a box that has not yet run
+# the migration keeps updating from the source it was installed with. Drop them
+# together with the other transition shims.
+#
+# install.sh carries an inline copy of this resolution because it bootstraps
+# before this library exists on disk — keep the two in sync.
 mesh_template_url() {
+    if [ -n "${UPDATE_URL:-}" ]; then
+        printf '%s\n' "$UPDATE_URL"
+        return 0
+    fi
     if [ -n "${MESH_TEMPLATE_URL:-}" ]; then
         printf '%s\n' "$MESH_TEMPLATE_URL"
         return 0
     fi
-    local channel="${MESH_UPDATE_CHANNEL:-stable}"
-    [ -n "$channel" ] || channel="stable"
-    printf 'https://github.com/yundera/mesh-router-template-root/archive/refs/heads/%s.tar.gz\n' "$channel"
+    local channel="${MESH_UPDATE_CHANNEL:-$MESH_DEFAULT_CHANNEL}"
+    [ -n "$channel" ] || channel="$MESH_DEFAULT_CHANNEL"
+    mesh_channel_url "$channel"
 }

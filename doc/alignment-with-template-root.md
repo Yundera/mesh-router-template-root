@@ -155,6 +155,39 @@ Regression coverage lives in the scratchpad harnesses (56 assertions): the self-
 case is reproduced with no network and no docker by serving the tree as a `file://` tarball
 through `MESH_TEMPLATE_URL`.
 
+### `UPDATE_URL` — the update source, renamed
+
+`UPDATE_URL` is now the canonical key and holds a **full tarball URL**, matching
+`template-root`'s key name and shape, and matching what `settings-center-app`'s
+`/api/admin/update-channel` reads and writes through `env-file-manager.sh`. That endpoint is
+why this rename mattered enough to do before the rest: without it the admin app's update
+panel cannot drive this template (phase 4).
+
+- Resolution order in `mesh_template_url()`: `UPDATE_URL` → `MESH_TEMPLATE_URL` (deprecated)
+  → `MESH_UPDATE_CHANNEL` (deprecated, expanded to a branch URL) → stable branch.
+- `install.sh` keeps `--channel` as a convenience and gains `--update-url` for an arbitrary
+  tarball; either way the resolved full URL is persisted.
+- Migrated by `scripts/migrations/2026-08-02-02-rename-update-url.sh`.
+- **Format difference kept:** this template ships `.tar.gz` and extracts with `tar`;
+  `template-root` ships `.zip`. A `.zip` URL is rejected with an explicit message rather
+  than failing inside `tar` — same key, still not interchangeable archives. Adding `unzip`
+  support would close that, at the cost of a new host dependency.
+
+**Rollback trap found while testing this, and designed around.** The first version of the
+migration *deleted* `MESH_UPDATE_CHANNEL` and `MESH_TEMPLATE_URL` once `UPDATE_URL` was
+written. Pre-rename code reads `MESH_TEMPLATE_URL` and knows nothing about `UPDATE_URL`, so
+a box that ran the migration and was then put back on an older tree — a reverted `main`, or
+a pin to a `stable` that predates the rename — resolved nothing, fell through to the
+built-in default, and **silently started tracking `stable` instead of the branch it was
+on**. Reproduced on the test box: `mesh_template_url()` returned the stable URL while
+`.env` clearly said `main`.
+
+The migration and `install.sh` therefore **mirror** the resolved URL into
+`MESH_TEMPLATE_URL` instead of deleting it, so old and new code agree either way.
+`MESH_UPDATE_CHANNEL` is dropped immediately — old code prefers `MESH_TEMPLATE_URL` over it,
+so it can no longer influence anything. `MESH_TEMPLATE_URL` goes with the other transition
+shims one release later.
+
 ## Phase 1 — Authelia + Dex (release 2, part 1)
 
 **Add:** `auth/configuration.yml.tmpl`, `ensure-authelia.sh`, and an `authelia` service
@@ -283,11 +316,7 @@ repo has nightly cron only, and the admin app's SelfCheck panel invokes the rebo
 
 ## Open follow-ups
 
-- **`MESH_UPDATE_CHANNEL` is a branch name, not a URL.** `template-root` uses a single
-  `UPDATE_URL` (a full `.zip`). This repo has both: `MESH_UPDATE_CHANNEL` (branch) and
-  `MESH_TEMPLATE_URL` (full tarball URL, takes precedence). Converging on the `UPDATE_URL`
-  name is a phase-0-style rename whenever wanted — mechanism already exists, only the naming
-  differs.
+- ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.
 - **`uninstall.sh` removes a stale container list.** It names
   `mesh-router-{tunnel,agent,caddy} smtp casaos` only — `dex`, `casaos-oidc-bridge` and
   `auth-registrar` are left running, and the `dex-internal` network is not removed. Found

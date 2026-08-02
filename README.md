@@ -145,10 +145,21 @@ Installs follow an **update channel** — a branch of this repo:
 | `stable` (default) | `stable` | end users | nothing — it's the default |
 | `main` (dev) | `main` | developers/testing | `install.sh --channel main` (or `-Channel main` on Windows) |
 
-The chosen channel is persisted to `.env` as `MESH_UPDATE_CHANNEL`, and the nightly
-self-check (`ensure-template-sync.sh`) reads it back, so a box keeps updating from the
-channel it was installed with instead of drifting onto another branch.
-`MESH_TEMPLATE_URL` (a full tarball URL) still overrides everything for forks/tags.
+The channel is a convenience: it is resolved to a full URL at install time and persisted
+to `.env` as **`UPDATE_URL`**, which the nightly self-check reads back — so a box keeps
+updating from the source it was installed with instead of drifting onto another branch.
+Point it anywhere with `install.sh --update-url <tarball>` (forks, tags, mirrors), or edit
+`UPDATE_URL` directly afterwards.
+
+`UPDATE_URL` is the same key name and shape `Yundera/template-root` uses, and the one
+`settings-center-app`'s update-channel panel reads and writes — that alignment is the point
+(see [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md)). One
+difference remains: this template ships `.tar.gz`, `template-root` ships `.zip`. A `.zip`
+URL is rejected with an explicit message rather than failing inside `tar`.
+
+`MESH_UPDATE_CHANNEL` and `MESH_TEMPLATE_URL` are the pre-rename keys. They are still read
+as fallbacks for one release, and `scripts/migrations/2026-08-02-02-rename-update-url.sh`
+converts them in place.
 
 Promote dev → users by merging `main` into `stable`.
 
@@ -213,8 +224,8 @@ ${DATA_ROOT}/AppData/mesh/
 
 1. **Self-maintenance** — scripts executable, nightly cron entry, logrotate config
 2. **Prerequisites** — Docker installed, `.env` valid (backfills missing optional keys)
-3. **Template sync** — downloads this repo's channel tarball (`MESH_UPDATE_CHANNEL`,
-   default `stable`), runs any pending **migrations** from the downloaded tree, atomically
+3. **Template sync** — downloads the tarball at `UPDATE_URL` (default: the `stable`
+   branch), runs any pending **migrations** from the downloaded tree, atomically
    swaps `template/`, copies `docker-compose.yml`, `Caddyfile` and `scripts/` to their live
    locations (auto-update)
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
@@ -250,9 +261,9 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `DOMAIN` | _(required)_ | This box's domain, e.g. `alice.nsl.sh` |
 | `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
-| `MESH_UPDATE_CHANNEL` | `stable` | Branch this box tracks (`stable` \| `main`). Set at install via `--channel`; the nightly sync honours it |
+| `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
-| `MESH_TEMPLATE_URL` | _(unset)_ | Full tarball URL that overrides `MESH_UPDATE_CHANNEL` entirely (forks/tags/dev) |
+| `MESH_UPDATE_CHANNEL` / `MESH_TEMPLATE_URL` | _(unset)_ | **Deprecated** pre-rename keys, still read as fallbacks for one release. Migrated to `UPDATE_URL` automatically |
 | `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
 | `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |
 

@@ -22,8 +22,8 @@
 # ensure-stack-up.sh restores the file from template/ if it is still absent.
 #
 # Opt out with MESH_AUTO_UPDATE=false in .env (the rest of the self-check
-# still runs). Pick the source channel with MESH_UPDATE_CHANNEL (stable|main,
-# default stable) or override entirely with MESH_TEMPLATE_URL (dev/testing).
+# still runs). Choose the source with UPDATE_URL (a full tarball URL; default is
+# the stable branch) — see mesh_template_url() in library/common.sh.
 
 set -e
 
@@ -37,9 +37,21 @@ case "${MESH_AUTO_UPDATE:-true}" in
         ;;
 esac
 
-# Resolved from MESH_UPDATE_CHANNEL / MESH_TEMPLATE_URL in the sourced .env, so
-# a box stays on the channel it was installed from across nightly syncs.
+# Resolved from UPDATE_URL (or the deprecated channel keys) in the loaded .env, so
+# a box stays on the source it was installed from across nightly syncs.
 TARBALL_URL="$(mesh_template_url)"
+
+# Yundera/template-root's UPDATE_URL points at a .zip; this template ships a
+# .tar.gz and extracts with tar. Same key name, different archive format — say so
+# plainly instead of failing later with an opaque "tar: not in gzip format".
+case "$TARBALL_URL" in
+    *.zip)
+        echo "ERROR: UPDATE_URL points at a .zip ($TARBALL_URL)."
+        echo "       This template is distributed as .tar.gz and extracts with tar."
+        echo "       Use the .tar.gz form, e.g. .../archive/refs/heads/main.tar.gz"
+        exit 1
+        ;;
+esac
 
 TMP_DIR=$(mktemp -d)
 cleanup() { rm -rf "$TMP_DIR" "${TEMPLATE_DIR}.new" "${TEMPLATE_DIR}.old"; }
