@@ -44,6 +44,24 @@ load_env_file() {
 
 load_env_file "$ENV_FILE"
 
+# TRANSITION SHIM — remove together with the ${OLD} fallbacks in docker-compose.yml.
+#
+# In-memory only: no file is written, so ensure-env-valid.sh's heal_renamed_key and
+# the rename migration (both of which read the FILE) still see the real state and
+# still do the rename.
+#
+# Needed for exactly one cycle. A box updating from a pre-rename template installs
+# the new scripts and runs them in the SAME pass, while .env still holds the old
+# names — the migration cannot have run yet. Without this, every script reading
+# PROVIDER_STR fails in that window; ensure-route-registered.sh logged a bare
+# "ERROR: PROVIDER_STR not set" on a box whose provider was perfectly fine, which
+# is exactly the kind of message that sends someone debugging the wrong thing
+# during a fleet rollout.
+: "${PROVIDER_STR:=${PROVIDER:-}}"
+: "${DEFAULT_PWD:=${DEFAULT_PASSWORD:-}}"
+: "${SELF_CHECK_CRON:=${MESH_SELF_CHECK_CRON:-}}"
+export PROVIDER_STR DEFAULT_PWD SELF_CHECK_CRON
+
 MESH_ROOT="${DATA_ROOT:-/DATA}/AppData/mesh"
 SCRIPTS_DIR="$MESH_ROOT/scripts"
 TEMPLATE_DIR="$MESH_ROOT/template"

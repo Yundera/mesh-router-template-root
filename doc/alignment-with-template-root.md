@@ -101,6 +101,60 @@ cross-repo reads them, and the channel model is better than Yundera's single-zip
 in-place fallback (old key present, new key absent → migrate) so a box self-heals whatever
 order things land in.
 
+### What the first live test changed (2026-08-02, test2.nsl.sh)
+
+Installing `stable` and updating to this tree on a real box found two problems. Both fixes
+are in phase 0.
+
+**1. The sync destroyed the interpreters running it.** `ensure-template-sync.sh` propagated
+new scripts with a plain `cp` onto the live paths — including `self-check.sh` and itself,
+both of which were executing. Bash parses lazily by byte offset, so both resumed inside the
+new bytes:
+
+```
+ensure-template-sync.sh: line 121: syntax error near unexpected token `('   # from a 105-line file
+self-check.sh: line 85: syntax error near unexpected token `then'
+```
+
+The files were valid on disk the whole time. Latent since long before phase 0 — it only
+bites when a release shifts file length enough to move the parser onto a bad boundary, and
+phase 0 grew both files by ~45 lines. **It will bite phases 1–3 harder.** Fixed by copying
+each script to a temp file in the destination directory and `mv`-ing it into place: the
+rename gives a new inode and the running interpreter reads its own unlinked copy to the end.
+
+Note the asymmetry: **the fix cannot protect the cycle that installs it**, because the *old*
+sync is the one running then. A box coming from a pre-fix template will always take one
+noisy cycle. That is survivable — see below — and every cycle after it is clean.
+
+**2. The transition cycle ran the stack on blank credentials.** In that same cycle the new
+`docker-compose.yml` is installed and `ensure-stack-up.sh` applies it, but the rename
+migration cannot have run yet. `mesh-router-agent` came up with an empty `PROVIDER`. The
+public URLs kept answering for the ~600s route TTL and would then have gone dark until the
+next nightly cycle — up to 24h. Fixed with two transition shims, to be removed together one
+release after this one has rolled out:
+
+- `docker-compose.yml` reads `${PROVIDER_STR:-${PROVIDER}}` / `${DEFAULT_PWD:-${DEFAULT_PASSWORD}}`.
+- `library/common.sh` aliases the three renamed keys **in memory only** (`: "${NEW:=${OLD}}"`),
+  so scripts reading the new name work before the file is rewritten. It writes nothing, so the
+  migration and `heal_renamed_key` still see the real file state and still perform the rename.
+
+**Rollout shape for phase 0, confirmed on the box:**
+
+| Cycle | What happens |
+|---|---|
+| 1 | Old sync self-destructs (two syntax errors, exit 2). New scripts land anyway. `.env` still on old names. **Stack stays on valid credentials via the shims**; all endpoints 200. |
+| 2 | Fixed sync runs. Migration renames the keys, marker written. 12/12, exit 0. |
+| 3+ | Clean. Migration skipped via marker. |
+
+Verified end to end: `PROVIDER_STR` and `DEFAULT_PWD` fingerprints identical before and
+after (values moved, never regenerated), `.env` still `600` / `1000:1000`, `PUBLIC_IPV4/6`
+backfilled, cron running under the new script name, no blank-variable warnings, CasaOS and
+the Dex connector chooser both rendering.
+
+Regression coverage lives in the scratchpad harnesses (56 assertions): the self-overwrite
+case is reproduced with no network and no docker by serving the tree as a `file://` tarball
+through `MESH_TEMPLATE_URL`.
+
 ## Phase 1 — Authelia + Dex (release 2, part 1)
 
 **Add:** `auth/configuration.yml.tmpl`, `ensure-authelia.sh`, and an `authelia` service
@@ -226,6 +280,25 @@ plus its `tools/ensure-packages.sh` dependency, and `JWT_SECRET` generation in
 
 Worth porting alongside: `self-check-reboot.sh` + `ensure-self-check-at-reboot.sh` — this
 repo has nightly cron only, and the admin app's SelfCheck panel invokes the reboot wrapper.
+
+## Open follow-ups
+
+- **`MESH_UPDATE_CHANNEL` is a branch name, not a URL.** `template-root` uses a single
+  `UPDATE_URL` (a full `.zip`). This repo has both: `MESH_UPDATE_CHANNEL` (branch) and
+  `MESH_TEMPLATE_URL` (full tarball URL, takes precedence). Converging on the `UPDATE_URL`
+  name is a phase-0-style rename whenever wanted — mechanism already exists, only the naming
+  differs.
+- **`uninstall.sh` removes a stale container list.** It names
+  `mesh-router-{tunnel,agent,caddy} smtp casaos` only — `dex`, `casaos-oidc-bridge` and
+  `auth-registrar` are left running, and the `dex-internal` network is not removed. Found
+  while cleaning the test box. Phase 1 and 2 add `authelia`, `maison` and `maison-app` to
+  that list, so switch it to `docker compose down --remove-orphans` against the deployed
+  compose file rather than extending the names by hand.
+- **Dex cold-boot crash loop.** On a fresh install Dex validates its connector's issuer over
+  the *public* gateway before `ensure-route-registered.sh` has run, gets
+  `502 {"error":"No routes available"}` and exits; `restart: unless-stopped` recovers it a
+  few seconds later. Cosmetic but alarming in logs. Phase 1 does not fix it — Authelia's
+  issuer is gateway-routed the same way. Real fix is ordering, or lazy connector opening.
 
 ## Not ported
 

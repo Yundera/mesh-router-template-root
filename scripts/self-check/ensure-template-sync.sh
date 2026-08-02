@@ -115,8 +115,41 @@ cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 
 cp "$TEMPLATE_DIR/docker-compose.yml" "$APP_DIR/docker-compose.yml"
 
+# Scripts: copy to a temp file in the destination directory, then rename over the
+# target. NEVER a plain `cp` onto the live path — that is the exact opposite of
+# the Caddyfile rule above, and for a good reason.
+#
+# THIS SCRIPT AND self-check.sh ARE RUNNING RIGHT NOW, FROM THIS DIRECTORY.
+# Bash does not read a script into memory up front; it reads and parses lazily,
+# tracking a byte offset into the open file. Overwrite that file in place and the
+# interpreter carries on at its old offset inside the NEW bytes, which lands
+# mid-token and dies with a syntax error that points at a line the old file never
+# had. Observed on a real update: `ensure-template-sync.sh: line 121: syntax
+# error near unexpected token '('` from a 105-line script, plus self-check.sh
+# faulting in its own loop — while both files were perfectly valid on disk.
+# The abort left migrations unrun and the template half-applied.
+#
+# `mv` is a rename: the destination gets a NEW inode and the old one lives on,
+# unlinked, held open by the running interpreter, which reads it cleanly to the
+# end. Next run picks up the new content — the same one-cycle lag as before.
+#
+# Files deleted upstream are NOT removed here (there is no --delete), so a
+# retired script lingers until something prunes it. Harmless: scripts-config.txt
+# is the only thing that decides what runs.
 mkdir -p "$SCRIPTS_DIR"
-cp -a "$TEMPLATE_DIR/scripts/." "$SCRIPTS_DIR/"
-find "$SCRIPTS_DIR" -type f -name '*.sh' -exec chmod +x {} +
+# Clear temp files from a previous run that died between mktemp and mv.
+find "$SCRIPTS_DIR" -type f -name '.sync.*' -delete 2>/dev/null || true
+
+while IFS= read -r -d '' src; do
+    rel="${src#"$TEMPLATE_DIR/scripts/"}"
+    dst="$SCRIPTS_DIR/$rel"
+    mkdir -p "$(dirname "$dst")"
+    tmp="$(mktemp "$(dirname "$dst")/.sync.XXXXXX")"
+    cp -a "$src" "$tmp"
+    # chmod BEFORE the rename so the script is never briefly visible
+    # non-executable to a concurrent run.
+    case "$src" in *.sh) chmod +x "$tmp" ;; esac
+    mv -f "$tmp" "$dst"
+done < <(find "$TEMPLATE_DIR/scripts" -type f -print0)
 
 echo "Template synced (compose + Caddyfile + scripts updated; script changes apply next run)"

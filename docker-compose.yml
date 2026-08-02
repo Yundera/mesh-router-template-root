@@ -1,5 +1,26 @@
 name: mesh
 
+# =============================================================================
+# TRANSITION SHIM — remove one release after the key rename has rolled out.
+#
+# ${PROVIDER_STR:-${PROVIDER}} and ${DEFAULT_PWD:-${DEFAULT_PASSWORD}} below read
+# the new key name and fall back to the old one.
+#
+# Why it is needed: on a box updating FROM a pre-rename template, the running
+# self-check copies this compose file into place and brings the stack up in the
+# SAME cycle — but the rename migration cannot have run yet (the old
+# ensure-template-sync.sh has no migration support; it only gains it by
+# installing the very tree that contains this file). Without the fallback, that
+# cycle starts mesh-router-agent and -tunnel with an EMPTY provider string. The
+# public URLs keep answering for the ~600s route TTL and then the box goes dark
+# until the next nightly cycle — up to 24h. Observed on a real update before
+# this shim existed.
+#
+# The rename lands on the following cycle, via the migration and the
+# heal_renamed_key fallback in ensure-env-valid.sh. Once every supported box has
+# been through that, drop the `:-${OLD}` halves.
+# =============================================================================
+
 services:
   mesh-router-tunnel:
     image: ghcr.io/yundera/mesh-router-tunnel:1.2.10
@@ -13,7 +34,7 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.src_valid_mark: "1"
     environment:
-      - PROVIDER=${PROVIDER_STR}
+      - PROVIDER=${PROVIDER_STR:-${PROVIDER}}
       - ROUTING_TARGET_HOST=mesh-router-caddy
       # Dual-port support for transparent HTTP/HTTPS routing
       - ROUTING_TARGET_PORT_HTTPS=443
@@ -29,7 +50,7 @@ services:
     hostname: mesh-router-agent
     restart: unless-stopped
     environment:
-      - PROVIDER=${PROVIDER_STR}
+      - PROVIDER=${PROVIDER_STR:-${PROVIDER}}
       - PUBLIC_IP=${PUBLIC_IP}
       # Dual-port support for transparent HTTP/HTTPS routing
       - TARGET_PORT_HTTPS=443
@@ -83,7 +104,7 @@ services:
       # (host "smtp") and POSTs each email to {backend_url}/router/api/email/send with
       # "userid:signature" as the Bearer credential. mesh-router-backend verifies it and sends
       # from <app>.<user-domain>@<server-domain> (e.g. vaultwarden.alice@nsl.sh).
-      - RELAY_CREDENTIAL=${PROVIDER_STR}
+      - RELAY_CREDENTIAL=${PROVIDER_STR:-${PROVIDER}}
       - SMTP_PORT=587
     expose:
       - "587"
@@ -103,15 +124,15 @@ services:
       REF_NET: "pcs"
       REF_PORT: "443"
       REF_SCHEME: "https"
-      default_pwd: "${DEFAULT_PWD}"
+      default_pwd: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
       public_ip: "${PUBLIC_IP}"
       domain: "${DOMAIN}"
-      PCS_DEFAULT_PASSWORD: "${DEFAULT_PWD}"
+      PCS_DEFAULT_PASSWORD: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
       PCS_DOMAIN: "${DOMAIN}"
       PCS_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       PCS_PUBLIC_IP: "${PUBLIC_IP}"
       PCS_EMAIL: "${EMAIL}"
-      APP_DEFAULT_PASSWORD: "${DEFAULT_PWD}"
+      APP_DEFAULT_PASSWORD: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
       APP_DOMAIN: "${DOMAIN}"
       APP_DATA_ROOT: "${DATA_ROOT:-/DATA}"
       APP_PUBLIC_IP: "${PUBLIC_IP}"
