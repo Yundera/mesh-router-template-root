@@ -52,7 +52,7 @@ Reverse proxy with automatic SSL certificate management.
 The three root addresses — `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io`,
 `${PUBLIC_IP_DASH}.sslip.io` — are defined **only** in the `Caddyfile`, and point at
 whatever `DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT` names in `.env` (default
-`casaos:8080`). The same pair is also the target of the custom-domain catch-all
+`maison:80`). The same pair is also the target of the custom-domain catch-all
 that `mesh-router-caddy` injects via its Admin API.
 
 To hand the root domain to an installed app:
@@ -72,38 +72,56 @@ then `cd /DATA/AppData/casaos/apps/mesh && docker compose up -d`.
   merges site blocks that share an address, so a second claim leaves the apex with two
   `reverse_proxy` handlers and makes this setting meaningless. Services get their own
   `<name>-${DOMAIN}` hostname instead.
-- CasaOS stays reachable at `casaos-${DOMAIN}` whatever this is set to.
+- The dashboard stays reachable at `maison-${DOMAIN}` whatever this is set to.
 
-### casaos
+### maison (dashboard)
 
-Container management UI for the PCS instance.
+The CasaOS replacement: the same app grid and the same CasaOS App Store format, in a
+single Go binary driving the Docker socket. Deployed as its **own compose stack** to
+`${DATA_ROOT}/AppData/maison` by `scripts/self-check/ensure-maison-stack.sh`, not as
+part of the mesh stack — it attaches to the `pcs` network the mesh stack owns.
 
-- Web-based Docker management
-- Uses `%REF_DOMAIN%`, `%DATA_ROOT%`, `%DEFAULT_PASSWORD%`
-- First-run account setup handled by CasaOS itself; `DEFAULT_PWD` is the platform secret exposed to installed apps (not the CasaOS login)
-- Reachable at `casaos-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants, and the
-  `8080-casaos-…` aliases). It is *also* what the root domain points at by default,
-  but only because `DEFAULT_SERVICE_HOST=casaos` — it holds no claim on the apex itself
+- Reachable at `maison-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants), and it is
+  what the root domain points at by default (`DEFAULT_SERVICE_HOST=maison`).
+- **No authentication of its own** and it mounts the Docker socket, so it is never
+  published: the AppShield gate in the same stack is the only route in, and that gate
+  federates through Dex to Authelia. Never add a `ports:` mapping to it.
+- What apps receive on install — network, domain, public IP, default password — comes
+  from `${DATA_ROOT}/AppData/maison/.env.app`, regenerated from the mesh `.env` on
+  every self-check.
+- Apps installed by CasaOS before it was removed still live under
+  `/DATA/AppData/casaos/apps/<app>`. `ensure-maison-app-mirror.sh` projects them into
+  Maison's layout so they are manageable rather than merely visible.
 
-### dex / casaos-oidc-bridge / auth-registrar (SSO)
+### dex / authelia / auth-registrar (SSO)
 
-Single sign-on for apps installed on the PCS. Apps (e.g. AppShield-gated apps)
-delegate login via OIDC instead of holding their own credentials.
+Single sign-on for apps installed on the PCS. Apps delegate login via OIDC instead of
+holding their own credentials.
 
 - **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
-  `/.well-known/openid-configuration`). Renders a connector-chooser login page.
-- **casaos-oidc-bridge** — small OIDC provider at `https://casaos-oidc-${DOMAIN}`
-  that federates Dex's `casaos` connector to CasaOS's login API, so users log in
-  with their CasaOS identity. CasaOS is left untouched.
+  `/.well-known/openid-configuration`). A pure broker: it holds no credential of its
+  own, and renders a connector-chooser login page.
+- **authelia** — the PCS-local credential store at `https://local-auth-${DOMAIN}`,
+  federated by Dex as the "Local Account" connector. Owns the account that used to
+  live in CasaOS, seeded from `DEFAULT_PWD` as user `admin`. Its own login page
+  carries the password-reset link, which mails through the `smtp` relay in this stack.
+  Exactly one OIDC client (Dex); per-app clients stay on Dex's gRPC path.
 - **auth-registrar** — apps self-register as OIDC clients (`POST /register` to
-  `http://auth-registrar:9092`, internal only); the registrar creates the client
-  in Dex over its gRPC API. A disposable break-glass admin (`staticPasswords`)
-  exists for recovery when CasaOS is unreachable.
-- Provisioned by `scripts/self-check/ensure-dex.sh` (renders Dex config, seeds
-  `BRIDGE_SECRET` into `.env`, generates the break-glass admin). Data lives under
-  `${DATA_ROOT}/AppData/mesh/dex` and is treated as cache (safe to delete; it
-  self-heals on the next login). Dex's gRPC client API is unauthenticated and is
-  therefore bound to the isolated `dex-internal` network, never `pcs`.
+  `http://auth-registrar:9092`, internal only); the registrar creates the client in Dex
+  over its gRPC API. Caller identity comes from a PTR lookup of the source container
+  name, never from the request body.
+- Provisioned by `ensure-authelia.sh` (secrets, JWKS key, config, admin seed) and
+  `ensure-dex.sh` (config render), in that order — Authelia mints the
+  `AUTHELIA_DEX_SECRET` that Dex's connector needs. Dex's data under
+  `${DATA_ROOT}/AppData/mesh/dex` is cache and safe to delete; Authelia's under
+  `${DATA_ROOT}/AppData/mesh/auth` holds the local account — back it up.
+- Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
+  `dex-internal` network, never `pcs`.
+
+**REMOVED:** `casaos`, and with it `casaos-oidc-bridge` and the disposable Dex
+break-glass admin. Authelia is the local credential now, so the bridge was a second
+identity for the same person and the break-glass account had nothing left to recover
+from. See [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md).
 
 ## Network Configuration
 
@@ -119,7 +137,7 @@ External Request
      caddy (reverse proxy)
        │
        ▼
-   casaos / other services
+   maison / other services
 ```
 
 ## Usage

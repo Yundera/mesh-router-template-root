@@ -1,0 +1,88 @@
+# =============================================================================
+# Authelia configuration — LOCAL-ACCOUNT identity provider for the PCS.
+#
+# Authelia is NOT the top-level IdP. Dex (auth-${DOMAIN}) is the broker; Authelia
+# is one OIDC connector behind it, owning the *local* account — the credential
+# that used to live in CasaOS. It therefore has exactly ONE OIDC client (Dex),
+# registered statically below. Per-app clients stay on Dex's gRPC path via
+# auth-registrar, so there is no dynamic registration here.
+#
+# Rendered by scripts/self-check/ensure-authelia.sh to
+#   ${DATA_ROOT}/AppData/mesh/auth/configuration.yml
+# on every self-check. The identity_providers block (hmac + jwks + the Dex
+# client, whose pbkdf2 hash and PEM contain '$' sequences) is APPENDED by that
+# script — this template holds everything above it, and only ${DOMAIN} is
+# substituted.
+#
+# Authelia serves its own login UI at local-auth-${DOMAIN}. That page carries the
+# built-in "Reset password?" link and drives the email reset through the local
+# smtp relay. When a user picks "Local Account" on Dex's connector screen, Dex
+# redirects here; on success Authelia redirects back to
+# https://auth-${DOMAIN}/callback.
+#
+# Ported from Yundera/template-root (root/auth/configuration.yml.tmpl).
+# =============================================================================
+
+server:
+  address: 'tcp://0.0.0.0:9091'
+  buffers:
+    read: 16384
+    write: 16384
+
+log:
+  level: info
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+
+session:
+  cookies:
+    - domain: 'local-auth-${DOMAIN}'
+      authelia_url: 'https://local-auth-${DOMAIN}'
+      name: 'authelia_session'
+      same_site: 'lax'
+      # ~30-day sessions, matching the AppShield gates. A PCS is single-owner, so
+      # long-lived local sessions are fine.
+      inactivity: '30d'
+      expiration: '30d'
+      remember_me: '30d'
+
+storage:
+  local:
+    path: /config/db.sqlite
+
+access_control:
+  default_policy: one_factor
+
+# Brute-force protection. Dex has NONE (dexidp/dex#1671, open since 2020), and
+# the interactive password check happens here, so this block is the PCS's only
+# account-level rate limit.
+regulation:
+  max_retries: 5
+  find_time: '2m'
+  ban_time: '10m'
+
+totp:
+  issuer: '${DOMAIN}'
+  period: 30
+  skew: 1
+
+notifier:
+  # Skip the boot-time test email — Authelia restarts on every self-check tick and
+  # the relay (smtp -> mesh-router-backend) is rate limited. Real reset/2FA mails
+  # still send normally.
+  disable_startup_check: true
+  smtp:
+    # The mail-gateway container already in this stack: plaintext, no auth,
+    # reachable only on the internal `pcs` network.
+    address: 'smtp://smtp:587'
+    sender: 'PCS <noreply@${DOMAIN}>'
+    subject: '[${DOMAIN}] {title}'
+    # The relay does not advertise STARTTLS or accept TLS — force plaintext.
+    disable_require_tls: true
+    disable_starttls: true
+
+# identity_providers.oidc (hmac_secret + jwks + the single 'dex' client) is
+# appended below this line by ensure-authelia.sh. There is always exactly one
+# client, so the block is ALWAYS present.

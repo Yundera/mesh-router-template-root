@@ -23,7 +23,7 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 # Windows/WSL (--windows) installs are Linux-self-check-incompatible (cron,
 # logrotate, apt) and stay on a direct one-shot path: compose up, no auto-update.
 
-APP_DIR="/DATA/AppData/casaos/apps/mesh"   # CasaOS-visible surface: compose + .env only
+APP_DIR="/DATA/AppData/casaos/apps/mesh"   # compose + .env only (path predates CasaOS removal)
 
 # Defaults
 PROVIDER_STR=""
@@ -277,7 +277,16 @@ if [[ -n "$LOCAL_COMPOSE" ]]; then
     cp "$LOCAL_COMPOSE" "$TEMPLATE_DIR/docker-compose.yml"
     cp -a "$src_dir/scripts/." "$TEMPLATE_DIR/scripts/"
     cp "$src_dir/Caddyfile" "$TEMPLATE_DIR/Caddyfile"
-    echo "[OK] Template + Caddyfile + scripts copied from $src_dir"
+    # stacks/ and auth/ are read from template/ at runtime (deploy-stack.sh,
+    # ensure-authelia.sh) rather than propagated to a live location, so a --local
+    # install has to mirror them here too or Maison and Authelia have no source.
+    for extra in stacks auth; do
+      if [[ -d "$src_dir/$extra" ]]; then
+        rm -rf "${TEMPLATE_DIR:?}/$extra"
+        cp -a "$src_dir/$extra" "$TEMPLATE_DIR/$extra"
+      fi
+    done
+    echo "[OK] Template + Caddyfile + scripts + stacks copied from $src_dir"
   else
     echo "[..] No scripts/ beside $LOCAL_COMPOSE — fetching template from CDN..."
     download_template
@@ -330,8 +339,8 @@ PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
 DATA_ROOT=${DATA_ROOT}
 DEFAULT_PWD=${DEFAULT_PWD}
 EMAIL=${EMAIL}
-DEFAULT_SERVICE_HOST=casaos
-DEFAULT_SERVICE_PORT=8080
+DEFAULT_SERVICE_HOST=maison
+DEFAULT_SERVICE_PORT=80
 PUID=${PUID}
 PGID=${PGID}
 MESH_AUTO_UPDATE=false
@@ -360,7 +369,7 @@ EOF
   echo "  Domain:  https://${DOMAIN}"
   echo "  Install: ${APP_DIR}"
   echo ""
-  echo "Open https://${DOMAIN} to complete CasaOS first-run setup. Re-run to update."
+  echo "Open https://${DOMAIN} to sign in to the Maison dashboard. Re-run to update."
   exit 0
 fi
 
@@ -432,7 +441,8 @@ if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
   echo "  Domain:  https://${DOMAIN}"
   echo "  Install: ${APP_DIR}"
   echo ""
-  echo "Open https://${DOMAIN} in your browser to complete CasaOS first-run setup."
+  echo "Open https://${DOMAIN} in your browser — sign in with user 'admin' and the"
+  echo "password in DEFAULT_PWD (${APP_DIR}/.env)."
   echo "To update, re-run this command (or wait for the nightly self-check)."
 else
   echo "=== Installation finished with self-check failures (exit ${SELF_CHECK_RC}) ==="

@@ -87,8 +87,8 @@ services:
       - PCS_EMAIL=${EMAIL}
       - DOMAIN=${DOMAIN}
       - PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
-      - DEFAULT_SERVICE_HOST=${DEFAULT_SERVICE_HOST:-casaos}
-      - DEFAULT_SERVICE_PORT=${DEFAULT_SERVICE_PORT:-8080}
+      - DEFAULT_SERVICE_HOST=${DEFAULT_SERVICE_HOST:-maison}
+      - DEFAULT_SERVICE_PORT=${DEFAULT_SERVICE_PORT:-80}
     networks:
       pcs: null
     depends_on:
@@ -111,89 +111,13 @@ services:
     networks:
       pcs: null
 
-  casaos:
-    image: ghcr.io/yundera/casa-img:0.4.15-45
-    container_name: casaos
-    hostname: casaos
-    restart: unless-stopped
-    environment:
-      PUID: "${PUID:-1000}"
-      PGID: "${PGID:-1000}"
-      DATA_ROOT: "${DATA_ROOT:-/DATA}"
-      REF_DOMAIN: "${DOMAIN}"
-      REF_NET: "pcs"
-      REF_PORT: "443"
-      REF_SCHEME: "https"
-      default_pwd: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
-      public_ip: "${PUBLIC_IP}"
-      domain: "${DOMAIN}"
-      PCS_DEFAULT_PASSWORD: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
-      PCS_DOMAIN: "${DOMAIN}"
-      PCS_DATA_ROOT: "${DATA_ROOT:-/DATA}"
-      PCS_PUBLIC_IP: "${PUBLIC_IP}"
-      PCS_EMAIL: "${EMAIL}"
-      APP_DEFAULT_PASSWORD: "${DEFAULT_PWD:-${DEFAULT_PASSWORD}}"
-      APP_DOMAIN: "${DOMAIN}"
-      APP_DATA_ROOT: "${DATA_ROOT:-/DATA}"
-      APP_PUBLIC_IP: "${PUBLIC_IP}"
-      APP_PUBLIC_IP_DASH: "${PUBLIC_IP_DASH}"
-      APP_EMAIL: "${EMAIL}"
-      APP_NET: pcs
-
-      # Passwordless email sign-in: casaos enables the magic-link login option
-      # only when USER_EMAIL + SMTP_HOST + SMTP_PORT are all set.
-      USER_EMAIL: "${EMAIL}"
-      SMTP_HOST: "smtp"
-      SMTP_PORT: "587"
-    networks:
-      pcs: null
-    labels:
-      # Standard domains with custom CA (gateway-routed)
-      caddy_0: 8080-casaos-${DOMAIN}, casaos-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 8080}}"
-      # nip.io variants for direct access (custom CA)
-      caddy_1: 8080-casaos-${PUBLIC_IP_DASH}.nip.io, casaos-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 8080}}"
-      # sslip.io variants for direct access (Let's Encrypt)
-      caddy_2: 8080-casaos-${PUBLIC_IP_DASH}.sslip.io, casaos-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 8080}}"
-      # NOTE: Root domains (${DOMAIN}, ${PUBLIC_IP_DASH}.nip.io, ${PUBLIC_IP_DASH}.sslip.io)
-      # are handled in Caddyfile with configurable DEFAULT_SERVICE_HOST/PORT.
-      # casaos MUST NOT claim them here: caddy-docker-proxy merges same-address
-      # site blocks, so a second claim leaves the apex with two reverse_proxy
-      # handlers and makes DEFAULT_SERVICE_HOST unusable.
-    volumes:
-      - type: bind
-        source: ${DATA_ROOT:-/DATA}
-        target: /DATA
-        bind:
-          propagation: rshared
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-      - type: bind
-        source: /dev
-        target: /dev
-
-  # =============================================================================
-  # DEX - OIDC identity broker for PCS apps (SSO)
-  # Apps delegate login via the OIDC authorization_code flow. Discovery:
-  #   https://auth-${DOMAIN}/.well-known/openid-configuration
-  # User identity is federated to CasaOS through the casaos-oidc-bridge connector
-  # (below). App clients are registered dynamically by auth-registrar over Dex's
-  # gRPC API — there is no static client list. Config + sqlite + the break-glass
-  # admin are provisioned by scripts/self-check/ensure-dex.sh into
-  # ${DATA_ROOT}/AppData/mesh/dex/.
-  # =============================================================================
   dex:
     image: ghcr.io/dexidp/dex:v2.43.1
     container_name: dex
     hostname: dex
     restart: unless-stopped
     command: ["dex", "serve", "/data/config.yaml"]
-    # If the bridge issuer is NOT served with a publicly-trusted cert (e.g. an
+    # If a connector's issuer is NOT served with a publicly-trusted cert (e.g. an
     # internal-CA-only test host), Dex's back-channel TLS to it will fail; in
     # that case ensure-dex.sh writes a CA bundle and you add:
     #   environment:
@@ -211,8 +135,9 @@ services:
       # ONLY by containers on dex-internal (just auth-registrar).
       dex-internal:
         ipv4_address: 172.31.7.2
-    depends_on:
-      - casaos-oidc-bridge
+    # No depends_on: authelia is in this stack but Dex must not block on it, and
+    # Dex retries a connector's back-channel on use, so cold-boot ordering
+    # resolves itself.
     labels:
       # Standard domain with custom CA (gateway-routed)
       caddy_0: auth-${DOMAIN}
@@ -227,65 +152,61 @@ services:
       caddy_2.reverse_proxy: "{{upstreams 5556}}"
 
   # =============================================================================
-  # CASAOS-OIDC-BRIDGE - tiny OIDC provider fronting CasaOS's login API
-  # Dex's `casaos` connector federates here; the bridge authenticates the user
-  # against CasaOS (POST /v1/users/login) and verifies CasaOS's ES256 JWT via its
-  # JWKS. It MUST be reachable at a publicly-trusted host (casaos-oidc-${DOMAIN})
-  # so Dex's back-channel TLS validates. The nip.io label is REQUIRED — the CF
-  # worker rewrites Host to nip.io, so that is the route CF traffic matches.
-  # Signing key persisted at ${DATA_ROOT}/AppData/mesh/casaos-oidc-bridge/.
+  # AUTHELIA - local-account IdP, federated by Dex as the "Local Account" connector
+  # Owns the credential that used to live in CasaOS. Exactly ONE OIDC client (Dex);
+  # per-app clients stay on Dex's gRPC path via auth-registrar. Serves its own
+  # login UI at local-auth-${DOMAIN}, which carries the built-in "Reset password?"
+  # link and drives the email reset through the smtp relay in this same stack.
+  # Config + secrets + users_database.yml are provisioned by
+  # scripts/self-check/ensure-authelia.sh into ${DATA_ROOT}/AppData/mesh/auth/.
   # =============================================================================
-  casaos-oidc-bridge:
-    image: ghcr.io/yundera/casaos-oidc-bridge:1.0.3
-    container_name: casaos-oidc-bridge
-    hostname: casaos-oidc-bridge
+  authelia:
+    image: authelia/authelia:4.39
+    container_name: authelia
+    hostname: authelia
     restart: unless-stopped
     environment:
-      BRIDGE_ISSUER: "https://casaos-oidc-${DOMAIN}"
-      BRIDGE_ADDR: ":8089"
-      BRIDGE_KEY_PATH: /data/signing-key.json
-      CASAOS_LOGIN_URL: "http://casaos:8080/v1/users/login"
-      CASAOS_JWKS_URL: "http://casaos:8080/.well-known/jwks.json"
-      CLIENT_ID: dex
-      CLIENT_SECRET: "${BRIDGE_SECRET}"
-      REDIRECT_URIS: "https://auth-${DOMAIN}/callback"
+      AUTHELIA_SESSION_SECRET_FILE: /config/secrets/session
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /config/secrets/storage
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /config/secrets/reset
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/casaos-oidc-bridge:/data
+      # configuration.yml (rendered) + db.sqlite + users_database.yml + secrets.
+      # Unlike the dex dir this holds the local account — back it up.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/auth:/config
     expose:
-      - "8089"
-      - "8090"   # internal-only /validate (no Caddy label below → never gateway-routed)
+      - "9091"
     networks:
       pcs: null
-    depends_on:
-      - casaos
     labels:
-      # Standard domain with custom CA (gateway-routed)
-      caddy_0: casaos-oidc-${DOMAIN}
+      # Standard domain with custom CA (gateway-routed). Distinct host from Dex's
+      # auth-${DOMAIN}: Dex is the broker, Authelia is the connector behind it.
+      caddy_0: local-auth-${DOMAIN}
       caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 8089}}"
-      # nip.io variant — REQUIRED (CF worker rewrites Host to nip.io)
-      caddy_1: casaos-oidc-${PUBLIC_IP_DASH}.nip.io
+      caddy_0.reverse_proxy: "{{upstreams 9091}}"
+      # nip.io variant — REQUIRED: the CF worker rewrites Host to nip.io, so that
+      # is the route CF traffic matches, and Dex's back-channel needs it to resolve.
+      caddy_1: local-auth-${PUBLIC_IP_DASH}.nip.io
       caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 8089}}"
+      caddy_1.reverse_proxy: "{{upstreams 9091}}"
       # sslip.io variant (Let's Encrypt)
-      caddy_2: casaos-oidc-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 8089}}"
+      caddy_2: local-auth-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 9091}}"
 
   # =============================================================================
   # AUTH-REGISTRAR - OIDC client self-registration for PCS apps
-  # Sidecars (e.g. AppShield) POST their redirect URIs to
-  #   http://auth-registrar:9092/register
-  # on first login and get back {client_id, client_secret, issuer_url}. Caller
-  # identity is derived from the source IP via PTR lookup on the pcs network —
-  # client_id is never accepted as input. Intentionally NOT publicly routable.
-  # In Dex mode it calls Dex's gRPC CreateClient.
+  # Sidecars (e.g. the AppShield gate in the maison stack) POST their redirect
+  # URIs to http://auth-registrar:9092/register on first login and get back
+  # {client_id, client_secret, issuer_url}. Caller identity is derived from the
+  # source IP via PTR lookup on the pcs network — client_id is never accepted as
+  # input. Intentionally NOT publicly routable. In Dex mode it calls Dex's gRPC
+  # CreateClient.
   #
   # STATELESS: the registrar's client-secret cache lives inside the container
-  # (DEX_CLIENTS_DIR=/tmp/dex-clients) and is deliberately NOT persisted — there
-  # is no per-client secret to back up. Within a container lifetime the cache
-  # makes re-registration idempotent (same secret); after a restart the cache is
-  # empty and the registrar transparently rotates each client's secret on its
-  # next /register. Apps re-register on every login, so this is invisible.
+  # (DEX_CLIENTS_DIR=/tmp/dex-clients) and is deliberately NOT persisted. Within a
+  # container lifetime the cache makes re-registration idempotent (same secret);
+  # after a restart it is empty and the registrar transparently rotates each
+  # client's secret on its next /register. Apps re-register on every login, so
+  # this is invisible.
   # =============================================================================
   auth-registrar:
     image: ghcr.io/yundera/mesh-auth:1.1.3
@@ -331,11 +252,33 @@ volumes:
   caddy_data:
   caddy_config:
 
+# Maison reads this in preference to x-casaos, field by field. Without it the
+# stack renders as a nameless, iconless tile: this project publishes no host port,
+# so there is nothing for the dashboard to derive a URL from.
+#
+# `webui-host` is the only field Maison substitutes ${DOMAIN} into. The literal
+# host below carries no placeholder, so it passes through untouched — which is
+# what we want: the tile opens the NSL.sh management dashboard, not anything on
+# this box.
+x-compose-app:
+  schema_version: 2
+  id: mesh
+  title: Mesh Router
+  category: Utilities
+  developer: Mesh Router NSL.sh
+  icon: https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/icon.png
+  webui-host: nsl.sh
+  webui-scheme: https
+  webui-path: /dashboard
+
+# Kept for any dashboard that reads the CasaOS metadata shape. `main` names the
+# stack's primary service and must exist — it was `casaos` until that service was
+# removed, which would have left the tile pointing at nothing.
 x-casaos:
-  main: casaos
-  # Open the NSL.sh management dashboard (not the local CasaOS). The UI builds
-  # the tile URL as ${scheme}://${hostname}${index}; without hostname it would
-  # fall back to this PCS's own domain.
+  main: mesh-router-caddy
+  # Open the NSL.sh management dashboard, not anything local. The UI builds the
+  # tile URL as ${scheme}://${hostname}${index}; without hostname it would fall
+  # back to this PCS's own domain.
   hostname: nsl.sh
   index: /dashboard
   scheme: https
@@ -353,7 +296,7 @@ x-casaos:
       Mesh router networking stack for Personal Cloud Servers. NSL.sh
 
       Includes WireGuard VPN tunneling, direct IP routing, Caddy reverse proxy
-      with automatic SSL, and CasaOS container management.
+      with automatic SSL, Dex/Authelia SSO, and the Maison dashboard.
   icon: https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/icon.png
   tagline:
     en_us: Secure mesh networking for your Personal Cloud Server

@@ -1,8 +1,8 @@
 # Dex configuration template.
 # Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/mesh/dex/config.yaml
 # on every self-check. DO NOT edit the rendered file — edit this template and let
-# the self-check re-render it. Substituted tokens: ${DOMAIN}, ${ADMIN_EMAIL},
-# ${BRIDGE_SECRET}, and __ADMIN_HASH__ (bcrypt, injected out-of-band).
+# the self-check re-render it. Substituted tokens: ${DOMAIN} and
+# ${AUTHELIA_DEX_SECRET} (minted by ensure-authelia.sh, which runs just before).
 
 issuer: https://auth-${DOMAIN}
 
@@ -31,19 +31,14 @@ oauth2:
   # Every PCS app is first-party; skip the per-app consent screen.
   skipApprovalScreen: true
 
-# Enables the local password connector backing the break-glass admin below.
-enablePasswordDB: true
-
-# Break-glass admin — DISPOSABLE. The real login path is the CasaOS connector
-# below; this account only exists for recovery when CasaOS is unreachable. The
-# password is random (ensure-dex.sh writes the plaintext to
-# ${DATA_ROOT}/AppData/mesh/dex/admin-password, chmod 600). To rotate: delete
-# that file (and admin-hash beside it) and re-run the self-check.
-staticPasswords:
-  - email: "${ADMIN_EMAIL}"
-    hash: "__ADMIN_HASH__"
-    username: admin
-    userID: "00000000-0000-0000-0000-000000000001"
+# No local password DB. Dex is a pure BROKER: it holds no credential of its own,
+# so every interactive login is federated to a connector.
+#
+# REMOVED with the CasaOS connector: enablePasswordDB + the disposable
+# break-glass staticPasswords admin. That account existed only for recovery when
+# CasaOS was unreachable. Authelia is the local credential now, it is in this same
+# stack, and its own login page carries the password-reset link — so the recovery
+# path is Authelia itself, not a second identity to keep track of.
 
 # Application clients are NOT defined statically — auth-registrar registers them
 # dynamically over Dex's gRPC API. The registrar is stateless (it persists no
@@ -51,19 +46,29 @@ staticPasswords:
 # disposable cache that rebuilds itself.
 
 connectors:
+  # Local Account — Authelia, the PCS-local credential store. Publicly-trusted
+  # host so Dex's back-channel TLS validates against system roots. Authelia's own
+  # login page carries the password-reset link.
   - type: oidc
-    id: casaos
-    name: CasaOS
+    id: authelia
+    name: Local Account
     config:
-      # The casaos-oidc-bridge. Must be a publicly-trusted host so Dex's
-      # back-channel TLS to it validates against system roots.
-      issuer: https://casaos-oidc-${DOMAIN}
+      issuer: https://local-auth-${DOMAIN}
       clientID: dex
-      clientSecret: "${BRIDGE_SECRET}"
+      clientSecret: "${AUTHELIA_DEX_SECRET}"
       # Dex's own connector callback.
       redirectURI: https://auth-${DOMAIN}/callback
-      userNameKey: name
+      # Authelia 4.39 returns scope claims (preferred_username, email, name) from
+      # its userinfo endpoint rather than in the ID token, so Dex must fetch it.
+      getUserInfo: true
+      userNameKey: preferred_username
       scopes:
         - openid
         - profile
         - email
+
+  # REMOVED: the `casaos` connector, which federated to casaos-oidc-bridge and
+  # authenticated against CasaOS's /v1/users/login. Authelia above is the local
+  # credential store now, so that path was a second local identity for the same
+  # person — and one that dies with CasaOS. The bridge service went with it; it
+  # had no other consumer.

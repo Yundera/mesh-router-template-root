@@ -1,0 +1,168 @@
+# =============================================================================
+# MAISON STACK — the dashboard, replacing CasaOS.
+#
+# Deployed to ${DATA_ROOT}/AppData/maison/ by scripts/self-check/ensure-maison-stack.sh,
+# which also generates the .env beside it from the mesh .env, and the .env.app next
+# to that. DO NOT edit the deployed copies — they are overwritten on every self-check.
+#
+# The directory name is dotless on purpose: Maison's managed-app scan of
+# ${DATA_ROOT}/AppData skips any name containing a dot, so `maison` is picked up and
+# the dashboard tiles itself. It is not hidden.
+#
+# That same folder is ALSO Maison's state directory: STATE_DIR is left unset, so it
+# defaults to DATA_ROOT/AppData/maison — this folder. settings.json and the store
+# cache live here alongside the stack files, and deploy-stack.sh only ever writes
+# docker-compose.yml and .env, so it never disturbs that state.
+#
+# SECURITY: Maison has NO authentication of any kind (upstream non-goal) and it
+# mounts the Docker socket, so an exposed port is root on the host. It is never
+# published: the container only `expose`s 8080 on the internal `pcs` network, and the
+# ONLY route in is the AppShield gate below, which owns the caddy_* labels.
+# Never add a `ports:` mapping to the maison service.
+#
+# Ported from Yundera/template-root (root/stacks/maison/docker-compose.yml). The
+# CasaDash rebrand handling is omitted — this template never shipped `casadash`.
+# =============================================================================
+name: maison
+
+services:
+  # ===========================================================================
+  # APPSHIELD GATE — the only public entrypoint to Maison.
+  #   - humans: interactive SSO. The gate self-registers an OIDC client with the
+  #     auth-registrar on first login (no client id/secret to inject), which
+  #     federates through Dex to Authelia (the PCS-local credential).
+  #   - machines: nothing. There is no non-interactive path here.
+  # AUTH_HASH is deliberately NOT set: it is a per-app secret a store installer
+  # injects, and this stack is not a store app.
+  # ===========================================================================
+  # NAMING IS LOAD-BEARING: this container MUST be named `maison`, and the
+  # dashboard behind it `maison-app`. The auth-registrar derives an app's client_id
+  # from a PTR lookup of the *caller's container name* on the pcs network, and then
+  # only ever issues redirect URIs under `<client_id>-<suffix>`. Name this container
+  # `maison-gate` and it registers callbacks for maison-gate-${DOMAIN} — a hostname
+  # the caddy_* labels below do not publish, so the OIDC callback lands on an
+  # unrouted host and login dead-ends. The gate therefore takes the app's public
+  # name; the backend gets the suffix.
+  maison:
+    image: ghcr.io/yundera/appshield:2.0.6
+    container_name: maison
+    hostname: maison
+    restart: unless-stopped
+    user: "0:0"
+    cpu_shares: 40
+    mem_limit: 128m
+    expose:
+      - "80"
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      # Must list the SAME host suffixes as the caddy_* labels below — the
+      # registrar validates every requested callback against exactly this set.
+      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "maison-app"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+      # Gate session lifetime: 30 days, matching Authelia's cookie settings.
+      SESSION_DURATION_HOURS: "720"
+    volumes:
+      # Gate state under /data: persisted login sessions (sessions.json, AppShield
+      # >= 2.0.6) and the MCP OAuth provider state. Without this mount a container
+      # recreate logs everyone out regardless of SESSION_DURATION_HOURS.
+      - ${DATA_ROOT:-/DATA}/AppData/maison/gate-data:/data
+    depends_on:
+      - maison-app
+    networks:
+      pcs: null
+    labels:
+      # Standard domain with custom CA (gateway-routed)
+      caddy_0: maison-${DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      # nip.io variant for direct access (custom CA)
+      caddy_1: maison-${PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      # sslip.io variant for direct access (Let's Encrypt)
+      caddy_2: maison-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+
+  # The dashboard itself. Named `maison-app` so the gate above can own the public
+  # name `maison` — see the naming note there.
+  maison-app:
+    image: ghcr.io/yundera/maison:1.1.0
+    container_name: maison-app
+    hostname: maison-app
+    restart: unless-stopped
+    cpu_shares: 90
+    mem_limit: 512m
+    environment:
+      HTTP_ADDR: ":8080"
+
+      # DATA_HOST_PATH MUST equal DATA_ROOT. Maison reads the raw
+      # `com.docker.compose.project.working_dir` label — a HOST path — and opens it
+      # directly, with no container-path remapping. If the two differ, every app's
+      # compose lookup opens a path that does not exist inside this container and NO
+      # app gets a tile.
+      DATA_ROOT: "${DATA_ROOT:-/DATA}"
+      DATA_HOST_PATH: "${DATA_ROOT:-/DATA}"
+
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ}"
+
+      # What Maison forwards into the apps it installs — the app network, domain,
+      # public IP, default password — is deliberately NOT here. It lives in
+      # ${DATA_ROOT}/AppData/maison/.env.app, written by ensure-maison-stack.sh from
+      # the mesh .env. That file is the deployment's statement of what an app
+      # receives; this block is only what Maison needs to run itself.
+      #
+      # VERSION-COUPLED: requires a Maison image that reads .env.app. An older image
+      # expects REF_NET and will attach apps to no network at all.
+      APPSTORE_URL: "https://github.com/Yundera/AppStore/archive/refs/heads/main.zip"
+
+      # The PCS infrastructure must not be uninstallable from the dashboard. Tiles
+      # still render; only the Uninstall action is withheld, and the API refuses it.
+      # `casaos` is listed because /DATA/AppData/casaos is still where app compose
+      # files live on boxes installed before this release — removing it would take
+      # every app definition with it, including this template's own directory.
+      PROTECTED_APPS: "maison,casaos,mesh"
+    # Docker socket group — resolved from the host by ensure-maison-stack.sh.
+    group_add:
+      - "${DOCKER_GID}"
+    expose:
+      - "8080"   # NEVER `ports:` — see the security note at the top of this file
+    networks:
+      pcs: null
+    volumes:
+      - type: bind
+        source: ${DATA_ROOT:-/DATA}
+        target: /DATA
+        bind:
+          propagation: rshared
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+
+networks:
+  # Created and owned by the `mesh` stack — this project only attaches to it.
+  # ensure-maison-stack.sh therefore runs after ensure-stack-up.sh.
+  pcs:
+    name: pcs
+    external: true
+
+# The dashboard tiles itself. Maison reads this in preference to x-casaos, field by
+# field. `webui-host` is the ONLY metadata field it substitutes ${DOMAIN} into —
+# Maison parses compose with a plain yaml.Unmarshal and never interpolates, so a
+# templated host anywhere else would link to the literal `https://maison-${DOMAIN}/`.
+#
+# It points at the GATE (`maison-${DOMAIN}`), not the dashboard container — that is
+# the only authenticated way in, and it must match the caddy_0 label above.
+x-compose-app:
+  schema_version: 2
+  id: maison
+  title: Maison
+  category: pcs
+  developer: Yundera Team
+  icon: https://cdn.jsdelivr.net/gh/Yundera/AppStore@main/Apps/CasaDash/icon.png
+  webui-host: maison-${DOMAIN}
+  webui-scheme: https
+  webui-path: /

@@ -10,18 +10,30 @@ ensure-logrotate.sh
 ensure-docker-installed.sh
 ensure-env-valid.sh
 
-# Template sync / auto-update (no-op when MESH_AUTO_UPDATE=false)
+# Template sync / auto-update (no-op when MESH_AUTO_UPDATE=false).
+# Also where scripts/migrations/ runs, from the newly downloaded tree.
 ensure-template-sync.sh
 
 # Stack
 ensure-public-ip.sh
 ensure-email-synced.sh
-# Provision Dex SSO (render config + BRIDGE_SECRET + break-glass admin) BEFORE
-# the stack comes up so docker compose interpolates the secret and Dex finds its
-# config on first start.
+# ensure-authelia.sh MUST run before ensure-dex.sh: it mints AUTHELIA_DEX_SECRET
+# into .env, which ensure-dex.sh interpolates into the Dex "Local Account"
+# connector's clientSecret. Both run BEFORE the stack comes up so docker compose
+# interpolates the secret and each service finds its config on first start.
+ensure-authelia.sh
 ensure-dex.sh
 ensure-stack-pulled.sh
 ensure-stack-up.sh
+
+# Auxiliary stack — Maison, the dashboard. MUST stay after ensure-stack-up.sh: it
+# attaches to the `pcs` network, which the mesh stack owns and creates, and its
+# AppShield gate needs auth-registrar / dex reachable by name on it.
+ensure-maison-stack.sh
+# Projects CasaOS-installed apps (boxes provisioned before CasaOS was removed) into
+# Maison's layout so they are manageable rather than merely visible. No-op on a
+# fresh install.
+ensure-maison-app-mirror.sh
 
 # Verification (check-only, no repair)
 ensure-route-registered.sh

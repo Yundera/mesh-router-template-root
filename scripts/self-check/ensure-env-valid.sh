@@ -61,8 +61,8 @@ ensure_default() {
 }
 
 ensure_default "DATA_ROOT" "/DATA"
-ensure_default "DEFAULT_SERVICE_HOST" "casaos"
-ensure_default "DEFAULT_SERVICE_PORT" "8080"
+ensure_default "DEFAULT_SERVICE_HOST" "maison"
+ensure_default "DEFAULT_SERVICE_PORT" "80"
 ensure_default "PUID" "1000"
 ensure_default "PGID" "1000"
 ensure_default "EMAIL" "admin@${DOMAIN}"

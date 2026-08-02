@@ -53,8 +53,8 @@ before merging to `stable`.
 
 | Release | Contents |
 |---|---|
-| 1 | **Phase 0** — migration engine, `env-file-manager.sh`, two-pass self-check, env key renames |
-| 2 | **Phases 1+2** — Authelia/Dex, Maison in, CasaOS out, plus one convergence migration |
+| 1 | **Phase 0** — migration engine, `env-file-manager.sh`, two-pass self-check, env key renames ✅ shipped |
+| 2 | **Phases 1+2** — Authelia/Dex, Maison in, CasaOS out, plus one convergence migration ✅ implemented |
 | 3 | **Phase 3** — move `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh` |
 | 4 | **Phase 4** — admin app, once the upstream `COMPOSE_FOLDER_PATH` work lands |
 
@@ -188,6 +188,42 @@ The migration and `install.sh` therefore **mirror** the resolved URL into
 so it can no longer influence anything. `MESH_TEMPLATE_URL` goes with the other transition
 shims one release later.
 
+## Phases 1+2 — IMPLEMENTED (release 2)
+
+**The port target moved before this was written.** `template-root` finished its own
+phases 2 and 3 on 2026-08-02: `casaos` and `stacks/casaos/` are gone there,
+`ensure-casaos-stack.sh` is deleted, and only `stacks/maison/` remains. So the
+cohabitation shape planned below was skipped — this repo ports the **final** state
+directly, which is simpler and matches upstream today.
+
+What shipped:
+
+| | |
+|---|---|
+| Added to the mesh stack | `authelia` (4.39) on `local-auth-${DOMAIN}` |
+| Removed from the mesh stack | `casaos`, `casaos-oidc-bridge` |
+| New stack | `stacks/maison/` → deployed to `${DATA_ROOT}/AppData/maison` |
+| New scripts | `ensure-authelia.sh`, `ensure-maison-stack.sh`, `ensure-maison-app-mirror.sh`, `tools/deploy-stack.sh` |
+| New template | `auth/configuration.yml.tmpl` |
+| Dex connector | `casaos` → `authelia`; `enablePasswordDB` + break-glass admin removed |
+| Root domain | `DEFAULT_SERVICE_HOST` `casaos:8080` → `maison:80` |
+| Migration | `2026-08-02-03-authelia-maison.sh` |
+
+Two things worth knowing about the implementation:
+
+- **`stacks/` and `auth/` are read from `$TEMPLATE_DIR`, not a live location.**
+  `ensure-template-sync.sh` propagates only `docker-compose.yml`, the `Caddyfile` and
+  `scripts/`. Rather than adding two more propagation steps, `deploy-stack.sh` and
+  `ensure-authelia.sh` read from `template/` — a pristine copy of the whole repo,
+  refreshed on every sync, so it is always current. `install.sh --local` had to be
+  taught to mirror both directories, since that path assembles `template/` by hand.
+- **`uninstall.sh` no longer names containers.** It now runs `docker compose down
+  --remove-orphans -v` against both project directories, with a named sweep only as a
+  fallback. The old hand-maintained list already missed `dex`, `casaos-oidc-bridge`
+  and `auth-registrar`; this release would have added three more.
+
+The original plan for these phases follows, kept for the reasoning.
+
 ## Phase 1 — Authelia + Dex (release 2, part 1)
 
 **Add:** `auth/configuration.yml.tmpl`, `ensure-authelia.sh`, and an `authelia` service
@@ -317,12 +353,8 @@ repo has nightly cron only, and the admin app's SelfCheck panel invokes the rebo
 ## Open follow-ups
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.
-- **`uninstall.sh` removes a stale container list.** It names
-  `mesh-router-{tunnel,agent,caddy} smtp casaos` only — `dex`, `casaos-oidc-bridge` and
-  `auth-registrar` are left running, and the `dex-internal` network is not removed. Found
-  while cleaning the test box. Phase 1 and 2 add `authelia`, `maison` and `maison-app` to
-  that list, so switch it to `docker compose down --remove-orphans` against the deployed
-  compose file rather than extending the names by hand.
+- ~~`uninstall.sh` removes a stale container list.~~ **Done** with phases 1+2 — it now
+  runs `docker compose down --remove-orphans -v` against both project directories.
 - **Dex cold-boot crash loop.** On a fresh install Dex validates its connector's issuer over
   the *public* gateway before `ensure-route-registered.sh` has run, gets
   `502 {"error":"No routes available"}` and exits; `restart: unless-stopped` recovers it a

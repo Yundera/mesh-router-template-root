@@ -81,7 +81,8 @@ esac
 echo "=== Mesh Router Uninstaller ==="
 echo ""
 echo "This will remove:"
-echo "  - docker stack 'mesh' (tunnel, agent, caddy, smtp, casaos) + caddy volumes"
+echo "  - docker stacks 'mesh' (tunnel, agent, caddy, smtp, dex, authelia,"
+echo "    auth-registrar) and 'maison' (dashboard + gate) + their volumes"
 echo "  - the nightly self-check cron entry + /etc/logrotate.d/mesh-router"
 echo "  - $APP_DIR"
 echo "  - $MESH_ROOT"
@@ -111,10 +112,22 @@ if command -v docker >/dev/null 2>&1; then
     (cd "$APP_DIR" && docker compose down -v --remove-orphans) || true
   else
     echo "[..] compose file missing; removing known containers by name..."
-    docker rm -f mesh-router-tunnel mesh-router-agent mesh-router-caddy smtp casaos >/dev/null 2>&1 || true
+    # Tear down BOTH compose projects rather than naming containers. The old
+    # hand-maintained list already missed dex, casaos-oidc-bridge and
+    # auth-registrar; this release adds authelia, maison and maison-app, and the
+    # next one will add more. `down` also removes each project's own networks.
+    for proj_dir in "$APP_DIR" "${DATA_ROOT:-/DATA}/AppData/maison"; do
+        if [ -f "$proj_dir/docker-compose.yml" ]; then
+            docker compose --project-directory "$proj_dir" \
+                -f "$proj_dir/docker-compose.yml" down --remove-orphans -v >/dev/null 2>&1 || true
+        fi
+    done
+    # Belt and braces for anything a broken/absent compose file left behind.
+    docker rm -f mesh-router-tunnel mesh-router-agent mesh-router-caddy smtp \
+        dex authelia auth-registrar casaos casaos-oidc-bridge maison maison-app >/dev/null 2>&1 || true
   fi
   # Remove the pcs network only if nothing else is attached (fails harmlessly otherwise).
-  docker network rm pcs >/dev/null 2>&1 || true
+  docker network rm pcs dex-internal >/dev/null 2>&1 || true
   echo "[OK] Stack removed"
 else
   echo "[!!] docker not found; skipping container removal"
@@ -143,6 +156,10 @@ fi
 echo "[..] Removing mesh folders..."
 rm -rf "$APP_DIR"
 rm -rf "$MESH_ROOT"
+# The maison stack directory — its compose, .env, .env.app, gate sessions and the
+# dashboard's own settings/store cache. NOT the sibling ${DATA_ROOT}/AppData/<app>
+# folders: those are user app data and predate this stack.
+rm -rf "${DATA_ROOT:-/DATA}/AppData/maison"
 echo "[OK] Removed $APP_DIR and $MESH_ROOT"
 
 echo ""

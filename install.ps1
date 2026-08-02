@@ -137,8 +137,8 @@ PUBLIC_IP_DASH=$PublicIpDash
 DATA_ROOT=$DataRoot
 DEFAULT_PWD=$DefaultPassword
 EMAIL=$Email
-DEFAULT_SERVICE_HOST=casaos
-DEFAULT_SERVICE_PORT=8080
+DEFAULT_SERVICE_HOST=maison
+DEFAULT_SERVICE_PORT=80
 PUID=0
 PGID=0
 UPDATE_URL=https://github.com/yundera/mesh-router-template-root/archive/refs/heads/$Channel.tar.gz
@@ -159,5 +159,5 @@ Write-Host ""
 Write-Host "  Domain:    https://$Domain" -ForegroundColor White
 Write-Host "  Install:   $InstallDir" -ForegroundColor White
 Write-Host ""
-Write-Host "Open https://$Domain in your browser to complete CasaOS first-run setup." -ForegroundColor Gray
+Write-Host "Open https://$Domain in your browser and sign in as 'admin'." -ForegroundColor Gray
 Write-Host "To update, re-run this command." -ForegroundColor Gray
