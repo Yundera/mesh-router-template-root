@@ -9,7 +9,7 @@ trap 'echo "[FAIL] uninstall.sh line $LINENO exited $?" >&2' ERR
 #     casaos) and its caddy volumes
 #   - removes the nightly self-check cron entry and the logrotate config
 #   - deletes the two mesh-owned folders:
-#       /DATA/AppData/casaos/apps/mesh   (docker-compose.yml + .env)
+#       /DATA/AppData/mesh               (everything: compose, .env, scripts, data)
 #       ${DATA_ROOT}/AppData/mesh        (template, scripts, log, data/certs+caddy)
 #
 # It does NOT remove: Docker, user-installed apps, the `pcs` network if it is
@@ -20,7 +20,7 @@ trap 'echo "[FAIL] uninstall.sh line $LINENO exited $?" >&2' ERR
 #   curl -fsSL https://nsl.sh/dashboard/uninstall.sh | sudo bash -s -- --yes
 #   sudo bash uninstall.sh [--yes] [--data-root /DATA]
 
-APP_DIR="/DATA/AppData/casaos/apps/mesh"   # CasaOS-visible surface: compose + .env
+APP_DIR="/DATA/AppData/mesh"   # everything for this stack
 ENV_FILE="$APP_DIR/.env"
 
 ASSUME_YES=false
@@ -156,6 +156,9 @@ fi
 echo "[..] Removing mesh folders..."
 rm -rf "$APP_DIR"
 rm -rf "$MESH_ROOT"
+# The compatibility symlink left by the app-dir move migration. `rm -f` removes the
+# LINK, never its target — and the target is $APP_DIR, already gone above.
+[ -L /DATA/AppData/casaos/apps/mesh ] && rm -f /DATA/AppData/casaos/apps/mesh
 # The maison stack directory — its compose, .env, .env.app, gate sessions and the
 # dashboard's own settings/store cache. NOT the sibling ${DATA_ROOT}/AppData/<app>
 # folders: those are user app data and predate this stack.

@@ -2,10 +2,27 @@
 # Shared setup for mesh-router self-check scripts. Source this first.
 #
 # Layout (see README.md "Self-check & auto-update"):
-#   /DATA/AppData/casaos/apps/mesh/   — CasaOS-visible surface: docker-compose.yml + .env only
-#   ${DATA_ROOT}/AppData/mesh/        — everything else: template/, scripts/, log/, data/
+#   /DATA/AppData/mesh/   — everything: docker-compose.yml, .env, template/, scripts/,
+#                           log/, data/, dex/, auth/, migration-markers/
+#
+# The compose file and .env used to live in a separate /DATA/AppData/casaos/apps/mesh —
+# a CasaOS-visible surface. CasaOS is gone, and Maison's managed-app scan looks for
+# ${DATA_ROOT}/AppData/<name>/docker-compose.yml, so collapsing the two directories is
+# what makes this stack a managed tile instead of an "UNMANAGED" one.
 
-APP_DIR="/DATA/AppData/casaos/apps/mesh"
+APP_DIR="/DATA/AppData/mesh"
+
+# TRANSITION SHIM — remove with the other shims, once the fleet has migrated.
+#
+# Resolve the pre-move location when the new one has no .env yet. Without this the
+# ordering between migrations becomes load-bearing: migrations source THIS file, so on
+# a box that runs the whole backlog in one cycle, the earlier migrations would resolve
+# ENV_FILE to a path the move migration has not created yet, find no .env, and mark
+# themselves applied having done nothing. With the fallback, every script works either
+# side of the move and the migrations can run in any order.
+if [ ! -f "$APP_DIR/.env" ] && [ -f "/DATA/AppData/casaos/apps/mesh/.env" ]; then
+    APP_DIR="/DATA/AppData/casaos/apps/mesh"
+fi
 ENV_FILE="$APP_DIR/.env"
 
 # Load the stack .env (PROVIDER_STR, DOMAIN, DATA_ROOT, MESH_AUTO_UPDATE, ...).

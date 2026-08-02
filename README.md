@@ -58,12 +58,12 @@ that `mesh-router-caddy` injects via its Admin API.
 To hand the root domain to an installed app:
 
 ```bash
-# /DATA/AppData/casaos/apps/mesh/.env
+# /DATA/AppData/mesh/.env
 DEFAULT_SERVICE_HOST=my-app     # container name, or host.docker.internal for a host port
 DEFAULT_SERVICE_PORT=3000
 ```
 
-then `cd /DATA/AppData/casaos/apps/mesh && docker compose up -d`.
+then `cd /DATA/AppData/mesh && docker compose up -d`.
 
 - The target container **must be attached to the `pcs` network** — Caddy resolves it by
   Docker DNS. A container that isn't on `pcs`, or a typo, gives a 502 on the root domain
@@ -225,11 +225,9 @@ it entirely — the stack works but stays manual-update.
 ### Layout
 
 ```
-/DATA/AppData/casaos/apps/mesh/   # CasaOS-visible surface only
+/DATA/AppData/mesh/               # everything for this stack, one directory
 ├── docker-compose.yml            # template-owned: overwritten by auto-update
-└── .env                          # user-owned: never touched by auto-update
-
-${DATA_ROOT}/AppData/mesh/
+├── .env                          # user-owned: never touched by auto-update
 ├── Caddyfile                     # template-owned: base caddy config, bind-mounted read-only
 ├── template/                     # pristine synced copy of this repo
 ├── scripts/                      # live scripts (self-check.sh, library/, self-check/, tools/, migrations/)
@@ -318,7 +316,8 @@ sudo bash /DATA/AppData/mesh/template/uninstall.sh
 
 `uninstall.sh` stops and removes the `mesh` stack (tunnel, agent, caddy, smtp, casaos) and its
 caddy volumes, removes the nightly self-check cron entry and `/etc/logrotate.d/mesh-router`, and
-deletes the two mesh folders (`/DATA/AppData/casaos/apps/mesh` and `${DATA_ROOT}/AppData/mesh`).
+deletes `/DATA/AppData/mesh` and the compatibility symlink left at the old
+`/DATA/AppData/casaos/apps/mesh` path.
 It never touches Docker, user-installed apps, or user data (`/DATA/Documents`, `/DATA/Downloads`,
 `/DATA/Media`, other `/DATA/AppData` apps). Run without `--yes` for an interactive confirmation.
 

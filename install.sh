@@ -23,7 +23,7 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 # Windows/WSL (--windows) installs are Linux-self-check-incompatible (cron,
 # logrotate, apt) and stay on a direct one-shot path: compose up, no auto-update.
 
-APP_DIR="/DATA/AppData/casaos/apps/mesh"   # compose + .env only (path predates CasaOS removal)
+APP_DIR="/DATA/AppData/mesh"   # everything: compose, .env, template/, scripts/, data/
 
 # Defaults
 PROVIDER_STR=""
@@ -192,9 +192,9 @@ echo "=== Mesh Router Installer ==="
 echo ""
 
 # 1. Windows/WSL mode
-# On Windows/WSL, host paths use /c/DATA but CasaOS inside the container sees
-# /DATA. We keep APP_DIR at /DATA/... so docker compose labels match what CasaOS
-# expects, but symlink /DATA -> /c/DATA so files land on the Windows filesystem.
+# On Windows/WSL, host paths use /c/DATA but containers see /DATA. We keep APP_DIR
+# at /DATA/... so docker compose labels match, and symlink /DATA -> /c/DATA so files
+# land on the Windows filesystem.
 if [[ "$WINDOWS_MODE" == true ]]; then
   echo "[!!] Windows mode enabled"
   DATA_ROOT="/c/DATA"
@@ -212,7 +212,7 @@ SCRIPTS_DIR="$MESH_ROOT/scripts"
 TEMPLATE_DIR="$MESH_ROOT/template"
 
 # 2. Create directories
-# APP_DIR holds only what CasaOS needs to see (compose + .env); everything else
+# APP_DIR now holds everything for this stack; the rest of the tree
 # (data, template, scripts, log) lives under ${DATA_ROOT}/AppData/mesh.
 echo "[..] Creating directories..."
 mkdir -p "$APP_DIR" "$DATA_ROOT" \

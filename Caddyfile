@@ -70,18 +70,18 @@
 # may claim ${DOMAIN} / ${PUBLIC_IP_DASH}.nip.io / ${PUBLIC_IP_DASH}.sslip.io
 # via a caddy_* label — caddy-docker-proxy merges same-address site blocks, so
 # a second claim silently produces a site with two reverse_proxy handlers and
-# the knob below stops meaning anything. Every service, casaos included, gets
-# its own <name>-${DOMAIN} hostname instead.
+# the knob below stops meaning anything. Every service gets its own
+# <name>-${DOMAIN} hostname instead.
 #
-# Configure via /DATA/AppData/casaos/apps/mesh/.env:
-#   DEFAULT_SERVICE_HOST=casaos   (container name, or host.docker.internal for host ports)
-#   DEFAULT_SERVICE_PORT=8080     (port the service listens on)
+# Configure via /DATA/AppData/mesh/.env:
+#   DEFAULT_SERVICE_HOST=maison   (container name, or host.docker.internal for host ports)
+#   DEFAULT_SERVICE_PORT=80       (port the service listens on)
 #
 # The target container must be attached to the `pcs` network — Caddy resolves
 # it by Docker DNS. A host that is not on `pcs` (or a typo) yields a 502 on the
 # root domain with nothing else to indicate why.
 #
-# CasaOS stays reachable at casaos-${DOMAIN} regardless of this setting.
+# The dashboard stays reachable at maison-${DOMAIN} regardless of this setting.
 # =============================================================================
 
 # Root domain via gateway (custom CA)

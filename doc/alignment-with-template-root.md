@@ -55,7 +55,7 @@ before merging to `stable`.
 |---|---|
 | 1 | **Phase 0** — migration engine, `env-file-manager.sh`, two-pass self-check, env key renames ✅ shipped |
 | 2 | **Phases 1+2** — Authelia/Dex, Maison in, CasaOS out, plus one convergence migration ✅ implemented |
-| 3 | **Phase 3** — move `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh` |
+| 3 | **Phase 3** — move `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh` ✅ implemented |
 | 4 | **Phase 4** — admin app, once the upstream `COMPOSE_FOLDER_PATH` work lands |
 
 Phases 1 and 2 combine safely. Phase 3 is kept separate: it is the only step that touches
@@ -296,7 +296,31 @@ scripts/migrations/2026-XX-XX-01-authelia-maison.sh
 Maison itself needs no migration step: `ensure-maison-stack.sh` runs in pass 2 of the same
 cycle, and until it does the root domain 502s rather than serving something wrong.
 
-## Phase 3 — folder move (release 3)
+## Phase 3 — folder move — IMPLEMENTED (release 3)
+
+`APP_DIR` is now `/DATA/AppData/mesh`, the same directory as `MESH_ROOT`, so compose,
+`.env`, `template/`, `scripts/`, `log/` and `data/` all live in one place. Migration:
+`2026-08-02-04-move-app-dir.sh`.
+
+Two things the implementation needed beyond the plan:
+
+- **The old path becomes a symlink, not a deletion** — as planned, for the stale
+  `APP_DIR` in the running cycle and for rollback. `uninstall.sh` removes the link
+  (never its target).
+- **`common.sh` falls back to the old path when the new one has no `.env`.** Without
+  it, migration *ordering* becomes load-bearing: migrations source `common.sh`, so on a
+  box running the whole backlog in one cycle the earlier migrations would resolve
+  `ENV_FILE` to a path the move migration has not created yet, find no `.env`, and mark
+  themselves applied having done nothing. With the fallback every script works either
+  side of the move and the migrations can run in any order. This shim goes with the
+  others.
+
+The Mesh Router tile in Maison flips from `UNMANAGED` to managed as a side effect —
+Maison's managed scan is `stat(${DATA_ROOT}/AppData/<name>/docker-compose.yml)`.
+
+The original plan follows.
+
+### Original plan
 
 `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh`, collapsing into the existing
 `${DATA_ROOT}/AppData/mesh` so compose folder, scripts, template, log and data share one

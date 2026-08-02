@@ -9,7 +9,7 @@
 # Flow:
 #   1. Download repo tarball -> extract to temp -> atomic swap into
 #      ${MESH_ROOT}/template/ (a failed download never leaves a half tree).
-#   2. Copy template/docker-compose.yml -> /DATA/AppData/casaos/apps/mesh/
+#   2. Copy template/docker-compose.yml -> /DATA/AppData/mesh/
 #   3. Copy template/Caddyfile -> ${MESH_ROOT}/ (bind-mounted into
 #      mesh-router-caddy; see the in-place-copy note at the copy site).
 #   4. Copy template/scripts/ -> ${MESH_ROOT}/scripts/ (live scripts; updates

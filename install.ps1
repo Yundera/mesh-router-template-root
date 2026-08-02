@@ -21,7 +21,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoBase = "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@$Channel"
-$InstallDir = "$DataRoot/AppData/casaos/apps/mesh"
+$InstallDir = "$DataRoot/AppData/mesh"
 
 Write-Host "=== Yundera Mesh Router Installer (Windows) ===" -ForegroundColor Cyan
 Write-Host ""

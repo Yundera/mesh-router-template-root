@@ -17,8 +17,8 @@ bash /tmp/install.sh \
   --domain test.nsl.sh
 
 # Inspect generated files
-cat /DATA/AppData/casaos/apps/mesh/.env
-cat /DATA/AppData/casaos/apps/mesh/docker-compose.yml
+cat /DATA/AppData/mesh/.env
+cat /DATA/AppData/mesh/docker-compose.yml
 
 # Stop
 docker compose down
@@ -41,5 +41,5 @@ docker compose down
 
 ```bash
 # Inside the container, override with local template
-cp /tmp/docker-compose.yml /DATA/AppData/casaos/apps/mesh/docker-compose.yml
+cp /tmp/docker-compose.yml /DATA/AppData/mesh/docker-compose.yml
 ```
