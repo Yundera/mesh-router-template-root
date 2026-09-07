@@ -35,6 +35,16 @@ log:
 authentication_backend:
   file:
     path: /config/users_database.yml
+    # Reload the user store when it changes on disk. scripts/tools/
+    # authelia-user-manager.sh rewrites this file from the host — that is how the
+    # owner account is claimed and how passwords are reset — and without `watch`
+    # none of it takes effect until the next `docker restart authelia`, which
+    # drops every session on the box. ensure-authelia.sh also rewrites it on each
+    # self-check to keep the owner's email in step with EMAIL.
+    #
+    # Verified supported on 4.39: Authelia rejects unknown configuration keys, so
+    # a bad key here would be fatal at startup rather than ignored.
+    watch: true
 
 session:
   cookies:

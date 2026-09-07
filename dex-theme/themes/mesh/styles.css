@@ -1,0 +1,185 @@
+/* Theme for the Dex connector picker.
+   A wallpaper with a dark bottom scrim, a centered frosted-glass card with
+   an avatar, and blue pill buttons. Assets (wallpaper.jpg, avatar.svg, favicon.svg,
+   logo-dex.svg, icon-*) live beside this file and are served at theme/<name>.
+
+   The page carries no product branding on purpose: the PCS belongs to its
+   owner, so the chrome stays neutral and the heading names the box's own
+   domain (see frontend.issuer in dex.config.yaml.tmpl). It doubles as the
+   anti-phishing cue. Vendor marks appear only where they identify something
+   real — the Dex attribution and the per-connector icons, which name the
+   identity provider you are choosing.
+
+   All assets are vendored here rather than hotlinked to a CDN: this page must
+   render on a PCS with no outbound internet. */
+
+.theme-body {
+  min-height: 100vh;
+  margin: 0;
+  color: #1d2530;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.55) 100%),
+    url("wallpaper.jpg") center / cover no-repeat fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Center the card; neutralise main.css's fixed max-width / top margin. */
+.dex-container {
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+  color: #1d2530;
+}
+
+/* Frosted-glass card. */
+.theme-panel {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 28rem;
+  background: rgba(255, 255, 255, 0.46);
+  -webkit-backdrop-filter: blur(1rem);
+  backdrop-filter: blur(1rem);
+  border-radius: 8px;
+  padding: 2.5rem 3rem 3rem;
+  box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+/* Avatar above the heading. */
+.theme-panel::before {
+  content: "";
+  display: block;
+  width: 128px;
+  height: 128px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  background: url("avatar.svg") center / cover no-repeat;
+}
+
+.theme-heading {
+  margin: 0 0 1.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1d2530;
+  text-align: center;
+}
+
+.theme-form-row {
+  display: block;
+  margin: 0.75rem auto;
+}
+
+/* login.html wraps each button in an <a>; kill the inherited link underline
+   (and the visited-colour shift) so only the pill shows. */
+.theme-form-row a,
+.theme-form-row a:visited,
+.theme-form-row a:hover {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Pill provider buttons (icon chip + label). */
+.dex-btn.theme-btn-provider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 2.75rem;
+  padding: 0;
+  overflow: hidden;
+  color: #fff;
+  background: hsl(216, 90%, 54%);
+  border: none;
+  border-radius: 290486px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.dex-btn.theme-btn-provider:hover {
+  color: #fff;
+  background: hsl(216, 90%, 47%);
+}
+
+.dex-btn.theme-btn-provider:active {
+  transform: translateY(1px);
+}
+
+/* White circular icon chip on the left of the pill. */
+.dex-btn-icon {
+  flex: 0 0 auto;
+  height: 2.75rem;
+  width: 2.75rem;
+  margin: 0;
+  border-radius: 290486px 0 0 290486px;
+  background-color: #fff;
+  background-size: 22px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.dex-btn-text {
+  flex: 1 1 auto;
+  padding: 0 14px;
+  line-height: 2.75rem;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+}
+
+/* Per-connector icons (login.html emits dex-btn-icon--<connector id>).
+   These are the upstream brand marks, so they carry their own colours and
+   their own aspect ratios — hence a per-icon background-size rather than one
+   shared value. Authelia's mark is square and tight to its viewBox.
+
+   Only `authelia` ships here. A drop-in connector (dex/connectors.d/) that
+   wants an icon adds its own rule plus the asset — the selector is keyed on
+   the connector id, so nothing needs to change in this file for a connector
+   that is happy with the default chip. */
+.dex-btn-icon--authelia {
+  background-image: url("icon-authelia.svg");
+  background-size: 21px;
+}
+
+
+/* Dex attribution, top-left over the wallpaper. The wallpaper's scrim only
+   darkens the bottom and its top-left is pale sky, so this uses the dark
+   (colour) lockup — the white variant would disappear here. */
+.theme-dex-brand {
+  position: fixed;
+  top: 1.25rem;
+  left: 1.5rem;
+  z-index: 1;
+  display: block;
+  line-height: 0;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.theme-dex-brand:hover,
+.theme-dex-brand:focus-visible {
+  opacity: 1;
+}
+
+.theme-dex-brand img {
+  display: block;
+  width: 84px;
+  height: auto;
+}
+
+@media (max-width: 480px) {
+  .theme-panel { padding: 2rem 1.5rem 2.5rem; }
+  .theme-panel::before { width: 96px; height: 96px; }
+
+  /* Keep the mark clear of the card on short screens. */
+  .theme-dex-brand { top: 0.75rem; left: 0.75rem; }
+  .theme-dex-brand img { width: 66px; }
+}

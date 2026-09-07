@@ -65,7 +65,56 @@ USERS_DB="$AUTH_ROOT/users_database.yml"
 DEX_HASH_FILE="$SECRETS_DIR/dex-client-hash"
 
 # One image for both hashes: argon2 (user password) + pbkdf2 (client secret).
-AUTHELIA_IMAGE="authelia/authelia:4.39"
+AUTHELIA_IMAGE="authelia/authelia:4.39.20"
+
+# --- hashing helper ----------------------------------------------------------
+# Every hash on this box is produced by `docker run`-ing the authelia image, and
+# that is the ONLY Docker Hub pull in the whole install. A single transient
+# failure there — rate limit, DNS blip, registry 5xx — surfaces as `docker run`
+# exiting 125 and, unretried, takes down the entire provision: no client hash
+# means no Authelia config, which means no interactive login on the box at all.
+# That is not hypothetical; it destroyed a provision upstream on 2026-09-03.
+#
+# So: bounded retry with exponential backoff, and stderr KEPT rather than sent to
+# /dev/null — the old one-shot form swallowed the reason, leaving only "Failed to
+# hash" in the log with no way to tell a rate limit from a bad argument.
+#
+# Result lands in AUTHELIA_HASH_RESULT (a global) rather than on stdout, so the
+# caller can distinguish "no digest" from "command failed".
+HASH_MAX_ATTEMPTS=5
+AUTHELIA_HASH_RESULT=""
+authelia_hash() {
+    # usage: authelia_hash <argon2|pbkdf2> [extra args...]
+    local algo="$1"; shift
+    local attempt=1 delay=2 out rc
+
+    AUTHELIA_HASH_RESULT=""
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "docker unavailable; cannot hash with $AUTHELIA_IMAGE"
+        return 1
+    fi
+
+    while [ "$attempt" -le "$HASH_MAX_ATTEMPTS" ]; do
+        # 2>&1 so a registry error is captured with the output instead of lost.
+        if out="$(docker run --rm "$AUTHELIA_IMAGE" \
+                    authelia crypto hash generate "$algo" "$@" 2>&1)"; then
+            AUTHELIA_HASH_RESULT="$(printf '%s\n' "$out" | awk '/^Digest:/{print $2}')"
+            if [ -n "$AUTHELIA_HASH_RESULT" ]; then
+                return 0
+            fi
+            # Ran but produced no digest — an argument problem, not a transient
+            # one. Retrying cannot help.
+            log_error "authelia crypto hash generate $algo produced no digest: $out"
+            return 1
+        fi
+        rc=$?
+        log_warn "authelia hash attempt ${attempt}/${HASH_MAX_ATTEMPTS} failed (exit $rc): $out"
+        [ "$attempt" -lt "$HASH_MAX_ATTEMPTS" ] && sleep "$delay"
+        delay=$((delay * 2))
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
 
 if [ ! -f "$TEMPLATE" ]; then
     log_error "Authelia config template missing at $TEMPLATE"
@@ -110,17 +159,11 @@ if [ -z "$AUTHELIA_DEX_SECRET" ]; then
 fi
 
 if [ ! -f "$DEX_HASH_FILE" ]; then
-    if ! command -v docker >/dev/null 2>&1; then
-        log_error "docker unavailable; cannot pbkdf2-hash AUTHELIA_DEX_SECRET"
+    if ! authelia_hash pbkdf2 --password "$AUTHELIA_DEX_SECRET"; then
+        log_error "Failed to pbkdf2-hash AUTHELIA_DEX_SECRET via $AUTHELIA_IMAGE after $HASH_MAX_ATTEMPTS attempts"
         exit 1
     fi
-    DEX_SECRET_HASH="$(docker run --rm "$AUTHELIA_IMAGE" \
-        authelia crypto hash generate pbkdf2 --password "$AUTHELIA_DEX_SECRET" 2>/dev/null \
-        | awk '/^Digest:/{print $2}')"
-    if [ -z "$DEX_SECRET_HASH" ]; then
-        log_error "Failed to pbkdf2-hash AUTHELIA_DEX_SECRET via $AUTHELIA_IMAGE"
-        exit 1
-    fi
+    DEX_SECRET_HASH="$AUTHELIA_HASH_RESULT"
     printf '%s' "$DEX_SECRET_HASH" > "$DEX_HASH_FILE"
     chmod 600 "$DEX_HASH_FILE"
 fi
@@ -182,57 +225,108 @@ if [ -z "$ADMIN_EMAIL" ]; then
     log_warn "EMAIL not set in $ENV_FILE; falling back to ${ADMIN_EMAIL}"
 fi
 
+# The owner's chosen username, recorded at claim time. Absent on a box that has
+# never been claimed, and on pre-onboarding boxes — where the account was always
+# literally `admin`, so that is the right fallback.
+#
+# It lives in .env, which ensure-template-sync.sh declares user-owned and never
+# touches, so a sync cannot clobber it.
+AUTHELIA_ADMIN="$(get_env_value LOCAL_ADMIN_USER)"
+[ -n "$AUTHELIA_ADMIN" ] || AUTHELIA_ADMIN="admin"
+
 if [ -f "$USERS_DB" ] && grep -q "^[[:space:]]*password:" "$USERS_DB"; then
-    # Already seeded (by us, or by Authelia writing a password change back).
-    # Refresh only the email line — never touch the password.
+    # Already seeded (by us, by `claim`, or by Authelia writing a password change
+    # back). Refresh only the owner's email line — never touch any password.
+    #
+    # SCOPED TO THE OWNER'S OWN BLOCK. The previous version matched every
+    # `email:` at any indent, so on a box with more than one account it stamped
+    # the operator's address onto ALL of them on every single self-check —
+    # silently redirecting every other user's password-reset mail. The awk below
+    # tracks YAML structure instead: `users:` opens the map, any column-0 key
+    # closes it, the first key under `users:` establishes the per-user indent,
+    # keys at that indent switch which user we are inside, and only `email:` keys
+    # deeper than that while inside the owner's block are rewritten.
     TMP="$(mktemp)"
-    awk -v new="$ADMIN_EMAIL" '
-        /^[[:space:]]+email:/ {
-            match($0, /^[[:space:]]+/)
-            print substr($0, 1, RLENGTH) "email: \"" new "\""
-            next
+    awk -v new="$ADMIN_EMAIL" -v owner="$AUTHELIA_ADMIN" '
+        function indent_of(s,   n) { match(s, /^[[:space:]]*/); return RLENGTH }
+        /^users:[[:space:]]*$/ { in_users = 1; user_indent = -1; in_owner = 0; print; next }
+        in_users && /^[^[:space:]#]/ { in_users = 0; in_owner = 0 }
+        in_users && /^[[:space:]]*#/ { print; next }
+        in_users && /^[[:space:]]*$/ { print; next }
+        in_users {
+            ind = indent_of($0)
+            if (user_indent < 0) user_indent = ind
+            if (ind == user_indent) {
+                key = $0
+                sub(/^[[:space:]]*/, "", key)
+                sub(/:.*$/, "", key)
+                gsub(/^["'"'"']|["'"'"']$/, "", key)
+                in_owner = (key == owner)
+                print; next
+            }
+            if (in_owner && ind > user_indent && $0 ~ /^[[:space:]]*email:/) {
+                printf "%*semail: \"%s\"\n", ind, "", new
+                next
+            }
         }
         { print }
     ' "$USERS_DB" > "$TMP"
     if cmp -s "$TMP" "$USERS_DB"; then
         rm -f "$TMP"
-        echo "users_database.yml already seeded; admin email already ${ADMIN_EMAIL}"
+        echo "users_database.yml already seeded; ${AUTHELIA_ADMIN} email already ${ADMIN_EMAIL}"
     else
         chmod 600 "$TMP"
         mv "$TMP" "$USERS_DB"
-        echo "users_database.yml already seeded; refreshed admin email to ${ADMIN_EMAIL}"
+        echo "users_database.yml already seeded; refreshed ${AUTHELIA_ADMIN} email to ${ADMIN_EMAIL}"
     fi
 else
-    # Fixed username 'admin' regardless of anything else: one well-known local
-    # login avoids confusion.
-    AUTHELIA_ADMIN="admin"
-    ADMIN_PWD="$(get_env_value DEFAULT_PWD)"
-    if [ -z "$ADMIN_PWD" ]; then
-        log_error "DEFAULT_PWD not set in $ENV_FILE; cannot seed the Authelia admin"
+    # --- seed UNCLAIMED ------------------------------------------------------
+    # A fresh box ships with NO usable local credential. The account exists but is
+    # `disabled: true`, which Authelia enforces at authentication: a login with
+    # the right password is refused as "user not found". The owner claims it at
+    # install time (install.sh prompts, or --claim-user/--claim-password/
+    # --generate), or later over SSH with tools/authelia-user-manager.sh claim,
+    # choosing both the username and the password.
+    #
+    # Two hard constraints from Authelia 4.39, both verified against the image —
+    # violate either and the container dies on startup, taking every interactive
+    # login on the box with it:
+    #
+    #   1. a user entry MUST carry a non-empty `password:`. Seeding the
+    #      "unclaimed" state as a bare `disabled: true` with no password field
+    #      is FATAL:
+    #        could not validate the schema: Users.admin.users: non zero value required
+    #      Hence the throwaway hash below — random, never printed, never stored
+    #      anywhere else, and unusable precisely because the account is disabled.
+    #   2. `users:` MUST NOT be empty, so we cannot simply omit the entry and let
+    #      the claim create the first one:
+    #        could not validate the schema: users: non zero value required
+    #      Hence a PLACEHOLDER key, which `claim` renames to the user's choice.
+    #
+    # DEFAULT_PWD is deliberately NOT used here. It is an app-seed secret —
+    # ensure-maison-app-mirror.sh injects it into every installed app as
+    # default_pwd / PCS_DEFAULT_PASSWORD / APP_DEFAULT_PASSWORD — so making it the
+    # login password put the owner's own credential in every app's environment.
+    if ! authelia_hash argon2 --random --random.length 64; then
+        log_error "Failed to generate the unclaimed-account placeholder hash via $AUTHELIA_IMAGE after $HASH_MAX_ATTEMPTS attempts"
         exit 1
     fi
-
-    ADMIN_HASH="$(docker run --rm "$AUTHELIA_IMAGE" \
-        authelia crypto hash generate argon2 --password "$ADMIN_PWD" 2>/dev/null \
-        | awk '/^Digest:/{print $2}')"
-    if [ -z "$ADMIN_HASH" ]; then
-        log_error "Failed to argon2-hash the admin password via $AUTHELIA_IMAGE"
-        exit 1
-    fi
+    THROWAWAY_HASH="$AUTHELIA_HASH_RESULT"
 
     TMP="$(mktemp)"
     cat > "$TMP" <<EOF
 users:
   ${AUTHELIA_ADMIN}:
+    disabled: true
     displayname: "Administrator"
-    password: "${ADMIN_HASH}"
+    password: "${THROWAWAY_HASH}"
     email: "${ADMIN_EMAIL}"
     groups:
       - admins
 EOF
     chmod 600 "$TMP"
     mv "$TMP" "$USERS_DB"
-    echo "Seeded Authelia admin user: ${AUTHELIA_ADMIN} (password: DEFAULT_PWD)"
+    log_success "Seeded Authelia owner account UNCLAIMED (${AUTHELIA_ADMIN}, disabled until it is claimed)"
 fi
 
 # Pick up the re-rendered config. SIGHUP is NOT safe (Authelia 4.39 exits on it);

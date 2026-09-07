@@ -32,8 +32,12 @@ services:
   #     auth-registrar on first login (no client id/secret to inject), which
   #     federates through Dex to Authelia (the PCS-local credential).
   #   - machines: nothing. There is no non-interactive path here.
-  # AUTH_HASH is deliberately NOT set: it is a per-app secret a store installer
-  # injects, and this stack is not a store app.
+  #
+  # No machine/API auth by design. If it is ever needed, set OAUTH_RESOURCE to
+  # enable the OAuth 2.1 broker — AppShield 3.0 REMOVED AUTH_HASH and
+  # AUTH_HASH_MODE outright, so the old per-app static-credential mechanism no
+  # longer exists. The /data mount below already persists the broker's signing
+  # key and registered clients across recreates.
   # ===========================================================================
   # NAMING IS LOAD-BEARING: this container MUST be named `maison`, and the
   # dashboard behind it `maison-app`. The auth-registrar derives an app's client_id
@@ -44,7 +48,7 @@ services:
   # unrouted host and login dead-ends. The gate therefore takes the app's public
   # name; the backend gets the suffix.
   maison:
-    image: ghcr.io/yundera/appshield:2.0.6
+    image: ghcr.io/yundera/appshield:3.0.0
     container_name: maison
     hostname: maison
     restart: unless-stopped
@@ -55,8 +59,17 @@ services:
       - "80"
     environment:
       OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      # Must list the SAME host suffixes as the caddy_* labels below — the
-      # registrar validates every requested callback against exactly this set.
+      # Fallback only, since appshield 2.0.10 / mesh-auth 1.1.4: the gate now
+      # sends its callback PATH and adopts the redirect_uris the registrar
+      # returns, so the registrar's REDIRECT_HOST_SUFFIXES is what actually
+      # decides. This list is the pre-registration guess, and what gets used if
+      # /register is unreachable — keep it matching the caddy_* labels below.
+      #
+      # It CANNOT express the host that matters most here. As the root app
+      # (DEFAULT_SERVICE_HOST=maison), this gate is also served at the BARE
+      # ${DOMAIN}, and `<app>-<suffix>` has no way to say that — which is why the
+      # registrar has to be the one to answer (see ROOT_CLIENT_ID on
+      # auth-registrar in the mesh stack).
       REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
       BACKEND_HOST: "maison-app"
       BACKEND_PORT: "8080"
@@ -88,7 +101,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.0
+    image: ghcr.io/yundera/maison:1.1.25
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -117,14 +130,33 @@ services:
       #
       # VERSION-COUPLED: requires a Maison image that reads .env.app. An older image
       # expects REF_NET and will attach apps to no network at all.
-      APPSTORE_URL: "https://github.com/Yundera/AppStore/archive/refs/heads/main.zip"
 
-      # The PCS infrastructure must not be uninstallable from the dashboard. Tiles
-      # still render; only the Uninstall action is withheld, and the API refuses it.
-      # `casaos` is listed because /DATA/AppData/casaos is still where app compose
-      # files live on boxes installed before this release — removing it would take
-      # every app definition with it, including this template's own directory.
-      PROTECTED_APPS: "maison,casaos,mesh"
+      # The store(s) Maison browses, comma-separated. Overridable from the mesh
+      # .env with no change here: deploy-stack.sh copies that file wholesale into
+      # this stack's project directory, so an APPSTORE_URL set there wins over the
+      # default below. It is a BOOT default, not a permanent one: the moment
+      # anyone edits the source list in the dashboard Maison persists it, and a
+      # persisted list takes precedence from then on.
+      #
+      # DEFAULT IS `main`. It was briefly the `maison` branch — the conformance
+      # pass for a Maison-run box: assets moved to compose-relative paths, and
+      # each app's compose parameterised (${APP_NET:-pcs}, ${DATA_ROOT:-/DATA})
+      # instead of hardcoding this platform's values. That work is now merged into
+      # `main` and the branch has been DELETED, so pointing at `maison.zip`
+      # fetches a 404 and the box browses an empty catalog. Do not restore it.
+      #
+      # VERSION-COUPLED with the image pin above, in one direction:
+      # compose-relative assets need a Maison that resolves them (resolveAssets,
+      # internal/appstore/appstore.go), which is 1.1.21, at or below the pin. An
+      # older image browsing this store drops every asset it cannot resolve and
+      # renders the grid iconless. The pin and this URL move together; do not roll
+      # one back alone.
+      APPSTORE_URL: "${APPSTORE_URL:-https://github.com/Yundera/AppStore/archive/refs/heads/main.zip}"
+
+      # NO PROTECTED_APPS. It was removed from Maison at 1.1.5: an app is now
+      # protected because its own compose says so, via `x-compose-app.view:
+      # system` (this file's block at the bottom, and the mesh stack's). See the
+      # note there for what that withholds.
     # Docker socket group — resolved from the host by ensure-maison-stack.sh.
     group_add:
       - "${DOCKER_GID}"
@@ -162,7 +194,17 @@ x-compose-app:
   title: Maison
   category: pcs
   developer: Yundera Team
-  icon: https://cdn.jsdelivr.net/gh/Yundera/AppStore@main/Apps/CasaDash/icon.png
+  # The dashboard is platform, not an app: this puts its tile in Maison's System
+  # grid and — the load-bearing half — makes Maison refuse to stop or uninstall
+  # it. It replaces the PROTECTED_APPS env removed above (Maison >= 1.1.5); on an
+  # older image the key is ignored and the stack is neither grouped nor
+  # protected, which is why the image pin above and this block move together.
+  # Restart is deliberately still offered.
+  view: system
+  # THE URL MOVED. This pointed at Apps/CasaDash/icon.png until the AppStore repo
+  # renamed that folder to Apps/CasaOS/; jsDelivr serves the branch tip, so the
+  # old path 404s and this tile rendered iconless. Repointed to the live path.
+  icon: https://cdn.jsdelivr.net/gh/Yundera/AppStore@main/Apps/CasaOS/icon.png
   webui-host: maison-${DOMAIN}
   webui-scheme: https
   webui-path: /

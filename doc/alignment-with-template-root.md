@@ -1,23 +1,34 @@
 # Aligning this template with `Yundera/template-root`
 
-Working plan for bringing the FOSS mesh template (`mesh-router-template-root`, the
-`install.sh` self-serve product) closer to the managed Yundera PCS template
-(`Yundera/template-root`, provisioned by `pcs-orchestrator`).
+Working record of bringing the FOSS mesh template (`mesh-router-template-root`,
+the `install.sh` self-serve product) into step with the managed Yundera PCS
+template (`Yundera/template-root`, provisioned by `pcs-orchestrator`).
 
-Scope agreed:
+## Scope
 
-1. **Maison instead of CasaOS** — drop CasaOS entirely.
-2. **Dex + Authelia** — Authelia becomes the PCS-local credential; `casaos-oidc-bridge` goes.
-3. **Admin app** — ship `settings-center-app` here too.
-4. **Relevant self-checks** — port what applies, skip what only makes sense on a VM Yundera provisioned.
-5. **Env naming** — best-effort convergence on Yundera's key names.
+**In scope**, and the subject of releases 1-5 below:
 
-Out of scope, deliberately: the three-file env split (`.pcs.env` / `.pcs.secret.env` /
-`.ynd.user.env`). That exists because the orchestrator stages two of those files before
-`pcs-init.sh` runs. There is no orchestrator here — `install.sh` writes one file the user
-owns, and that stays.
+1. **Maison instead of CasaOS** - CasaOS dropped entirely.
+2. **Dex + Authelia** - Authelia is the box-local credential; `casaos-oidc-bridge` gone.
+3. **Relevant self-checks** - port what applies, skip what only makes sense on a VM
+   Yundera provisioned.
+4. **Env naming** - best-effort convergence on Yundera's key names.
+5. **Dex sessions** - real single-logout, custom login theme, `dex-grpc` alias.
+6. **Onboarding** - the owner claims the box's login, at install time or over SSH.
 
----
+**Permanently OUT of scope.** These are not "later", they are decided:
+
+| Not ported | Why |
+|---|---|
+| The admin app (`settings-center-app`) | A managed-PCS surface. This template's admin interface is the shell. What was "phase 4" below is cancelled, not deferred. |
+| Yundera-cloud integration | `YUNDERA_API`, `USER_JWT`, `OPERATOR_API`, the support key, `ensure-yundera-user-data.sh` - all assume a control plane this product does not have. |
+| The "Yundera Login" connector | `ensure-yundera-login.sh` federates to Yundera's IdP. The `connectors.d/` mechanism it used IS ported, so a fork can add its own; the connector is not. |
+| Backup / kopia | The credentials come from `YUNDERA_API` with a `USER_JWT`. Porting it means designing a bring-your-own-storage path first - a separate piece of work. |
+
+The three-file env split (`.pcs.env` / `.pcs.secret.env` / `.ynd.user.env`) is also
+deliberately not adopted. It exists because the orchestrator stages two of those
+files before `pcs-init.sh` runs. There is no orchestrator here - `install.sh`
+writes one file the user owns, and that stays.
 
 ## The constraint that shapes the release train
 
@@ -53,10 +64,11 @@ before merging to `stable`.
 
 | Release | Contents |
 |---|---|
-| 1 | **Phase 0** — migration engine, `env-file-manager.sh`, two-pass self-check, env key renames ✅ shipped |
-| 2 | **Phases 1+2** — Authelia/Dex, Maison in, CasaOS out, plus one convergence migration ✅ implemented |
-| 3 | **Phase 3** — move `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh` ✅ implemented |
-| 4 | **Phase 4** — admin app, once the upstream `COMPOSE_FOLDER_PATH` work lands |
+| 1 | **Phase 0** - migration engine, `env-file-manager.sh`, two-pass self-check, env key renames ✅ shipped |
+| 2 | **Phases 1+2** - Authelia/Dex, Maison in, CasaOS out, plus one convergence migration ✅ implemented |
+| 3 | **Phase 3** - move `/DATA/AppData/casaos/apps/mesh` → `/DATA/AppData/mesh` ✅ implemented |
+| 4 | ~~admin app~~ **CANCELLED** - out of scope, see the table above |
+| 5 | **Version bumps + Dex sessions + onboarding** ✅ implemented, see "Release 5" below |
 
 Phases 1 and 2 combine safely. Phase 3 is kept separate: it is the only step that touches
 the stack's on-disk identity, and it deserves its own rollback boundary.
@@ -344,35 +356,154 @@ keeps resolving for the rest of that cycle regardless of which `common.sh` is in
 later release drops the symlink. The migration must be re-entrant — it briefly takes the
 stack down.
 
-## Phase 4 — admin app (release 4)
+## Phase 4 — admin app — CANCELLED
 
-Blocked on an upstream change in `settings-center-app`. `COMPOSE_FOLDER_PATH` already exists
-in `getConfigBackend.ts` and is already set by the yundera compose, but only 3 call sites use
-it; ~15 module-level constants still hardcode `/DATA/AppData/casaos/apps/yundera`.
+Not deferred, cancelled. The admin app (`settings-center-app`) is a managed-PCS
+surface; this product's admin interface is the shell. See the scope table at the
+top.
 
-Upstream needs:
+Two consequences worth recording, because they undo earlier decisions:
 
-1. Derive every path from `COMPOSE_FOLDER_PATH` — `Health.ts`, `self-check-{run,log,cron,summary}.ts`,
-   `support-send-report.ts`, `SupportEnsure.ts`, and the `Migration/steps/*.ts` files.
-2. Two config keys, with defaults preserving Yundera behaviour exactly: `PCS_LOG_FILE`
-   (default `<root>/log/yundera.log`; here `mesh.log`) and `PCS_ENV_FILE` (default
-   `<root>/.pcs.env`; here `.env`). Everything else — `scripts/self-check.sh`,
-   `scripts/tools/env-file-manager.sh`, `docker-compose.yml` — has identical names on both sides.
-3. Gate the Yundera-only surface on `YUNDERA_API`: `SupportKey.ts` throws when it is unset,
-   so the Support and Migration panels must render as unavailable rather than error.
+- **The script-name convergence is off.** `ensure-env-valid.sh` vs
+  `ensure-env-vars-valid.sh`, `ensure-scripts-executable.sh` vs
+  `ensure-script-executable.sh`, `ensure-stack-{pulled,up}.sh` vs
+  `ensure-user-compose-{pulled,stack-up}.sh` — the only reason to rename was that
+  the admin app invokes some of them by name. Keep this repo's names.
+- **Phase 0's key renames are now unmotivated but stay anyway.** `PROVIDER_STR`,
+  `DEFAULT_PWD` and `SELF_CHECK_CRON` were renamed because `settings-center-app`
+  reads those names. They have shipped and boxes have migrated; renaming back
+  would cost another migration for nothing.
 
-`loadEnvironment.ts` is already deleted upstream — the three-file dotenv load was a no-op
-(host paths, not container paths; env actually arrives via compose `env_file:`). That is what
-makes a single `.env` sufficient here.
+## Release 5 — version bumps, Dex sessions, onboarding — IMPLEMENTED
 
-Then, in this repo: the `admin` service (`admin-${DOMAIN}` label triple, `env_file: .env`,
-`COMPOSE_FOLDER_PATH`, `PCS_LOG_FILE`, `PCS_ENV_FILE`,
-`OIDC_REGISTRAR_URL=http://auth-registrar:9092/register`), a ported `ensure-admin-user.sh`
-plus its `tools/ensure-packages.sh` dependency, and `JWT_SECRET` generation in
-`ensure-env-valid.sh`.
+### Version bumps
 
-Worth porting alongside: `self-check-reboot.sh` + `ensure-self-check-at-reboot.sh` — this
-repo has nightly cron only, and the admin app's SelfCheck panel invokes the reboot wrapper.
+| Image | was | now |
+|---|---|---|
+| `mesh-router-tunnel` | 1.2.10 | 1.3.0 |
+| `mesh-router-agent` | 1.0.11 | 1.1.1 |
+| `mesh-router-caddy` | 1.2.5 | 1.2.6 |
+| `mesh-auth` | 1.1.3 | 1.1.6 |
+| `authelia` | 4.39 | 4.39.20 |
+| `dex` | v2.43.1 | digest `af946950…a026b` |
+| `maison` | 1.1.0 | 1.1.25 |
+| `appshield` | 2.0.6 | 3.0.0 |
+
+Only two carried mandatory config changes.
+
+**`PROTECTED_APPS` → `x-compose-app.view: system`.** Maison **1.1.5 removed
+`PROTECTED_APPS`**, so on 1.1.25 the key is silently ignored and the platform
+stack becomes stoppable and uninstallable from the dashboard — and since phase 3
+the mesh stack is a *managed* Maison tile, so it is directly exposed. `view` does
+not raise `schema_version` and is inert on older images, so it shipped in its own
+commit **before** the bump. It is set in both `stacks/maison/docker-compose.yml`
+and the root `docker-compose.yml`.
+
+**`APPSTORE_URL` became overridable**, and its comment now carries the pin
+relationship: compose-relative store assets need Maison ≥ 1.1.21, so the image pin
+and the store URL move together. This repo was already on the wrong side of that
+— maison 1.1.0 against a post-conformance `AppStore@main` — so the store grid was
+rendering iconless before this release.
+
+Also picked up: `ROOT_CLIENT_ID: "${DEFAULT_SERVICE_HOST:-maison}"` on
+`auth-registrar` (mesh-auth ≥ 1.1.4), which names the one app allowed to register
+callbacks on the **bare** `${DOMAIN}`. Without it a login on the bare domain is
+bounced to `<app>-${DOMAIN}` mid-flow — "SSO moved me to a different URL". And the
+Maison tile icon URL, which had been 404ing since the AppStore repo renamed
+`Apps/CasaDash/` to `Apps/CasaOS/`.
+
+**AppShield 3.0.0 is drop-in here.** It removed `AUTH_HASH`/`AUTH_HASH_MODE`,
+which this template never set. Its identity-propagation variables all live on the
+admin gate, which does not exist here.
+
+### Dex sessions, theme, and the `dex-grpc` alias
+
+`DEX_SESSIONS_ENABLED=true` plus the `sessions:` block — **these move together**,
+Dex refuses to start with one and not the other. 720h absolute *and* idle: Dex
+defaults to 24h absolute with a **1h idle** timeout, so taking the defaults would
+quietly cut SSO to one hour of inactivity.
+
+The image is pinned **by digest to a `master` build**, deliberately. RP-Initiated
+Logout (PR #4674) and Back-Channel Logout with a `sid` claim (PR #4945) are merged
+upstream but unreleased; v2.45.1 predates both and advertises no logout at all.
+By digest and not `:master` so a push to trunk cannot reach the fleet on its own.
+**Repin to a release as soon as one carries both PRs.**
+
+`ensure-dex-session-key.sh` mints `DEX_SESSION_KEY` — 24 random bytes as base64,
+which is exactly 32 ASCII characters. Dex accepts only 16/24/32 **bytes**, so
+`openssl rand -hex 32` (64 chars) would be rejected.
+
+`dex-theme/` lives at the repo root and is read through the
+own-tree-then-`$TEMPLATE_DIR` fallback that `ensure-authelia.sh` already uses for
+its config template — `ensure-template-sync.sh` propagates only compose, the
+Caddyfile and `scripts/`, so `template/` is the only copy in the live layout.
+The theme is renamed off `yundera` to `mesh`; `icon-yundera.svg` and
+`icon-casaos.svg` are dropped with their CSS rules, since neither connector
+exists here. The login page names the box's own domain (`frontend.issuer`), which
+is both vendor-neutral and the anti-phishing cue.
+
+`tools/provision-dex-frontend.sh` is a **tools/** script with two callers
+(`ensure-dex.sh` and `ensure-stack-up.sh`) because compose bind-mounts
+`login.html`/`header.html` as single FILES: any `docker compose up` before they
+exist makes Docker create them as DIRECTORIES and `dex` can never start again.
+It empties the theme directory in place rather than `rm -rf`-ing it — a bind mount
+follows the **inode**, so recreating the directory leaves a running container
+mounted on the deleted one and every asset 404s.
+
+The pinned `ipv4_address: 172.31.7.2` is replaced by a network-scoped `dex-grpc`
+alias. Docker will not reconfigure an existing network's IPAM, so
+`migrations/2026-09-07-10-drop-dex-internal-ipam.always.sh` sweeps the stale
+bridge. It is `.always.sh`, **not** a one-shot: `run-migrations.sh` writes a
+one-shot's marker on *any* successful exit, so a deferral (the network still has
+attached endpoints mid-cycle) would be recorded as done and the sweep would never
+happen.
+
+### Onboarding
+
+The box now seeds its owner account **unclaimed** — present but `disabled: true`,
+which Authelia enforces at authentication. Two hard Authelia 4.39 schema
+constraints shape that seed, and violating either kills the container at startup,
+taking every interactive login with it: a user entry must carry a **non-empty
+`password:`** (hence a throwaway random hash, never printed), and `users:` must
+**not be empty** (hence a placeholder key that `claim` renames rather than
+create-then-delete).
+
+`DEFAULT_PWD` is no longer the login password. It is an app-seed secret injected
+into every installed app as `default_pwd` / `PCS_DEFAULT_PASSWORD` /
+`APP_DEFAULT_PASSWORD`, so using it as the human credential put the owner's own
+password in every app's environment. It still flows to apps unchanged.
+
+`install.sh` gained the precedence ladder **flag > existing `.env` > prompt >
+default**, so a re-run to update asks nothing — every value is already on disk.
+Prompts read `/dev/tty`, not stdin: the documented install path is
+`curl … | bash`, where stdin is the script itself and `[ -t 0 ]` is false even
+with a terminal present. Four paths, all exercised:
+
+| Invocation | Result |
+|---|---|
+| `--claim-user` + `--claim-password` | claimed, no prompt |
+| `--generate` | claimed, password printed once, never stored |
+| neither, with a terminal | prompts for username + password (twice, no echo) |
+| `--yes` with neither | left unclaimed, prints the SSH claim command |
+
+`tools/authelia-user-manager.sh` is ported nearly verbatim, which is why
+`ensure-yq-installed.sh` exists: `yq` is a deliberate exception to this repo's
+no-host-dependencies rule, taken so the read-modify-write over
+`users_database.yml` is one implementation rather than two. It is **not** a
+dependency of login — `ensure-dex.sh`'s claimed-ness probe fails **open** without
+it, and the installer treats a failed yq install as non-fatal.
+
+The Local Account connector moved out of `dex.config.yaml.tmpl` into
+`ensure-dex.sh` and is now conditional on claimed-ness, which is also what makes
+the `connectors.d/` drop-in mechanism possible (drop-ins cannot be appended to a
+template whose `connectors:` key already has inline items). An unclaimed box
+renders **zero** connectors, which is valid YAML and a legitimate transient state;
+the script logs it loudly with the exact fix command.
+
+`authentication_backend.file.watch: true` was added to the Authelia config: the
+user manager rewrites `users_database.yml` from the host, and without `watch` a
+claim or password change does not take effect until `docker restart authelia`,
+which drops every session on the box.
 
 ## Open follow-ups
 
@@ -385,6 +516,18 @@ repo has nightly cron only, and the admin app's SelfCheck panel invokes the rebo
   few seconds later. Cosmetic but alarming in logs. Phase 1 does not fix it — Authelia's
   issuer is gateway-routed the same way. Real fix is ordering, or lazy connector opening.
 
+  Release 5 narrows the window without meaning to: an **unclaimed** box renders no
+  connectors at all, so there is nothing for Dex to resolve on that first boot. The
+  loop is back the moment the box is claimed.
+- **Repin Dex to a release.** The digest pin is a `master` build. Repin as soon as an
+  upstream release carries PR #4674 and PR #4945 (expected > v2.45.1). Tracked here
+  rather than only in the compose comment, so it surfaces on the next pass.
+- **Drop the phase-0 transition shims.** `${PROVIDER_STR:-${PROVIDER}}` /
+  `${DEFAULT_PWD:-${DEFAULT_PASSWORD}}` in `docker-compose.yml`, the in-memory aliases in
+  `library/common.sh`, the `MESH_TEMPLATE_URL` mirror, and the old-`APP_DIR` symlink from
+  phase 3. All were "remove one release later"; that release has not happened. With the
+  admin app cancelled there is nothing left to coordinate with, so this is now free.
+
 ## Not ported
 
 `template-root`'s self-check runs on a VM the orchestrator provisioned. This one runs on a
@@ -392,6 +535,18 @@ machine the user already administers, so these would have the installer reconfig
 that is not ours:
 
 `ensure-pcs-user.sh`, `ensure-ssh.sh` (rewrites sshd config), `ensure-swap.sh`,
-`ensure-ubuntu-up-to-date.sh` (unattended apt upgrades), `ensure-yundera-support-key.sh`,
+`ensure-ubuntu-up-to-date.sh` (unattended apt upgrades), `ensure-support-key.sh`,
 `ensure-yundera-user-data.sh`, `ensure-outbound-ip-family.sh`, and the Proxmox/LVM handling
 in `library/common.sh`.
+
+Nor the pieces listed in the scope table at the top: the admin app and its
+`ensure-admin-user.sh` / `ensure-admin-gate-secret.sh`, `ensure-yundera-login.sh`,
+`ensure-maison-yundera-mirror.sh` (unnecessary since phase 3 made this stack a managed
+tile), and the whole backup/kopia set (`ensure-backup-{config,credentials}.sh`,
+`ensure-kopia-stack.sh`, `stacks/kopia/`, `library/kopia.sh`).
+
+`onboarding.sh` is **not** ported either, but for a different reason: it is a thin wrapper
+over the `claim` verb plus a state marker the admin app's wizard reads. `install.sh` and
+`authelia-user-manager.sh claim` cover the same ground here. Its deployment-override seam
+(an executable drop-in in the runtime data dir, `exec`'d in place of the shipped script)
+is worth remembering if this template ever needs per-deployment onboarding behaviour.

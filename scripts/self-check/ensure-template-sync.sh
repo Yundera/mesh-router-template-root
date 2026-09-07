@@ -116,8 +116,16 @@ rm -rf "${TEMPLATE_DIR}.old"
 #     DIRECTORY here; clear it or the cp below fails and Caddy never starts.
 #   - Copy IN PLACE. A single-file bind mount pins the inode, so writing via a
 #     temp file + mv would leave the running container reading the old content
-#     until the next recreate, and the entrypoint's inotify watcher — which
-#     watches the file, not the directory — would never fire.
+#     until the next recreate — the mount would still point at the replaced
+#     inode. Writing the same inode is what makes the new bytes visible.
+#
+#     (This used to add "and the entrypoint's inotify watcher would never
+#     fire". That watcher is GONE as of mesh-router-caddy 1.2.6: a `caddy
+#     reload` of the base file replaced the whole running config, dropping every
+#     label-derived route until caddy-docker-proxy's next generation — up to
+#     30s of every app hostname falling through to the catch-all. Reload is now
+#     caddy-docker-proxy's job, on its own polling interval. The in-place rule
+#     above still stands on the inode argument alone; do NOT switch to mv.)
 mkdir -p "$MESH_ROOT"
 if [ -d "$MESH_ROOT/Caddyfile" ]; then
     echo "Removing stray Caddyfile directory (created by a bind mount with no source file)"

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <title>{{ issuer }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="{{ url .ReqPath "static/main.css" }}" rel="stylesheet">
+    <link href="{{ url .ReqPath "theme/styles.css" }}" rel="stylesheet">
+    <link rel="icon" href="{{ url .ReqPath "theme/favicon.svg" }}">
+  </head>
+
+  <body class="theme-body">
+    <!-- Attribution for the software behind this page. Dex is Apache-2.0 and we
+         re-skin its UI, so its mark stays and links home. Positioned fixed so it
+         does not participate in .theme-body's centring flex layout. -->
+    <a class="theme-dex-brand" href="https://dexidp.io" target="_blank"
+       rel="noopener noreferrer" aria-label="Powered by Dex">
+      <img src="{{ url .ReqPath "theme/logo-dex.svg" }}" alt="Dex" width="298" height="109">
+    </a>
+
+    <div class="dex-container">

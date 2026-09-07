@@ -37,6 +37,12 @@ CHANNEL="stable"   # convenience: resolved to a branch URL unless --update-url i
 UPDATE_URL_ARG=""  # explicit full tarball URL; wins over --channel
 PUID="1000"
 PGID="1000"
+# Onboarding. The box seeds its owner account DISABLED, so an install that ends
+# without a claim leaves a login nobody can use — see the claim step at the end.
+CLAIM_USER=""
+CLAIM_PASSWORD=""
+CLAIM_GENERATE=false
+ASSUME_YES=false
 
 usage() {
   cat <<EOF
@@ -61,23 +67,46 @@ Options:
                 it); skips the CDN and disables auto-update — for dev/testing
   --windows     Windows/WSL mode (DATA_ROOT=/c/DATA, user 0:0, no rshared,
                 no self-check)
+
+Onboarding (the local login for this box):
+  --claim-user  Username for the owner account (lowercase; a-z 0-9 _ -)
+  --claim-password
+                Password for it. Omit both and you are prompted, if a terminal
+                is available; a re-run that finds the box already claimed asks
+                nothing.
+  --generate    Mint a random password and print it once instead of asking.
+  --yes, -y     Never prompt. With no credentials given, the box is left
+                UNCLAIMED and you claim it later over SSH with
+                scripts/tools/authelia-user-manager.sh claim <username>.
   --help        Show this help
 EOF
   exit 1
 }
 
 # Parse arguments
+#
+# need_value guards every option that takes one. Without it a trailing
+# `--domain` with no argument ran `shift 2` past the end of "$@" and surfaced as
+# an unbound-variable trace from somewhere further down, instead of saying which
+# flag was incomplete.
+need_value() {
+  [[ $# -ge 2 ]] || { echo "Error: $1 requires a value"; usage; }
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --provider)  PROVIDER_STR="$2"; shift 2 ;;
-    --domain)    DOMAIN="$2"; shift 2 ;;
-    --email)     EMAIL_ARG="$2"; shift 2 ;;
-    --channel)    CHANNEL="$2"; shift 2 ;;
-    --update-url) UPDATE_URL_ARG="$2"; shift 2 ;;
-    --public-ip) PUBLIC_IP="$2"; shift 2 ;;
-    --data-root) DATA_ROOT="$2"; shift 2 ;;
-    --local)     LOCAL_COMPOSE="$2"; shift 2 ;;
+    --provider)  need_value "$@"; PROVIDER_STR="$2"; shift 2 ;;
+    --domain)    need_value "$@"; DOMAIN="$2"; shift 2 ;;
+    --email)     need_value "$@"; EMAIL_ARG="$2"; shift 2 ;;
+    --channel)    need_value "$@"; CHANNEL="$2"; shift 2 ;;
+    --update-url) need_value "$@"; UPDATE_URL_ARG="$2"; shift 2 ;;
+    --public-ip) need_value "$@"; PUBLIC_IP="$2"; shift 2 ;;
+    --data-root) need_value "$@"; DATA_ROOT="$2"; shift 2 ;;
+    --local)     need_value "$@"; LOCAL_COMPOSE="$2"; shift 2 ;;
     --windows)   WINDOWS_MODE=true; shift ;;
+    --claim-user)     need_value "$@"; CLAIM_USER="$2"; shift 2 ;;
+    --claim-password) need_value "$@"; CLAIM_PASSWORD="$2"; shift 2 ;;
+    --generate)  CLAIM_GENERATE=true; shift ;;
+    --yes|-y)    ASSUME_YES=true; shift ;;
     --help)      usage ;;
     *)           echo "Unknown option: $1"; usage ;;
   esac
@@ -223,13 +252,55 @@ mkdir -p "$APP_DIR" "$DATA_ROOT" \
   "$SCRIPTS_DIR" "$TEMPLATE_DIR"
 echo "[OK] Layout under $MESH_ROOT"
 
+# Read a key out of the existing .env, if there is one. This is the middle rung
+# of the precedence ladder every input follows:
+#
+#     explicit flag  >  value already in .env  >  interactive prompt  >  default
+#
+# The practical effect is that a RE-RUN TO UPDATE asks nothing: every value is
+# already on disk, so each prompt is skipped for the same reason a flag would
+# skip it. There is no separate "am I updating?" branch anywhere in this script.
+env_get() {
+  local key="$1"
+  [[ -f "$APP_DIR/.env" ]] || { echo ""; return 0; }
+  grep -E "^${key}=" "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true
+}
+
+# Prompt on the CONTROLLING TERMINAL, not stdin.
+#
+# The documented install path is `curl -fsSL ... | bash -s -- ...`, where stdin
+# is the SCRIPT ITSELF — so `read` without a redirect would eat the script's own
+# remaining bytes, and `[ -t 0 ]` is false even when the user is sitting at a
+# terminal. Reading from /dev/tty is what makes a prompt work in a pipe at all.
+# Same idiom as uninstall.sh's confirmation.
+#
+# Returns 1 when there is no terminal, so callers can fall back rather than hang.
+have_tty() { [[ "$ASSUME_YES" != true && -r /dev/tty ]]; }
+
+prompt_line() {
+  local prompt="$1" __var="$2" reply=""
+  have_tty || return 1
+  printf '%s' "$prompt" > /dev/tty
+  read -r reply < /dev/tty || return 1
+  printf -v "$__var" '%s' "$reply"
+}
+
+prompt_secret() {
+  local prompt="$1" __var="$2" reply=""
+  have_tty || return 1
+  printf '%s' "$prompt" > /dev/tty
+  # No echo, and restore the terminal even if the read is interrupted.
+  stty -echo < /dev/tty 2>/dev/null || true
+  read -r reply < /dev/tty || { stty echo < /dev/tty 2>/dev/null || true; return 1; }
+  stty echo < /dev/tty 2>/dev/null || true
+  printf '\n' > /dev/tty
+  printf -v "$__var" '%s' "$reply"
+}
+
 # Auto-update toggle (nightly self-check re-syncs compose + scripts from main).
 # Preserve a user's opt-out across reruns; default off for --local dev installs
 # so the sync doesn't clobber local files with the published template.
-MESH_AUTO_UPDATE=""
-if [[ -f "$APP_DIR/.env" ]]; then
-  MESH_AUTO_UPDATE=$(grep -E '^MESH_AUTO_UPDATE=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
-fi
+MESH_AUTO_UPDATE="$(env_get MESH_AUTO_UPDATE)"
 if [[ -z "$MESH_AUTO_UPDATE" ]]; then
   if [[ -n "$LOCAL_COMPOSE" ]]; then
     MESH_AUTO_UPDATE="false"
@@ -280,13 +351,13 @@ if [[ -n "$LOCAL_COMPOSE" ]]; then
     # stacks/ and auth/ are read from template/ at runtime (deploy-stack.sh,
     # ensure-authelia.sh) rather than propagated to a live location, so a --local
     # install has to mirror them here too or Maison and Authelia have no source.
-    for extra in stacks auth; do
+    for extra in stacks auth dex-theme; do
       if [[ -d "$src_dir/$extra" ]]; then
         rm -rf "${TEMPLATE_DIR:?}/$extra"
         cp -a "$src_dir/$extra" "$TEMPLATE_DIR/$extra"
       fi
     done
-    echo "[OK] Template + Caddyfile + scripts + stacks copied from $src_dir"
+    echo "[OK] Template + Caddyfile + scripts + stacks + dex-theme copied from $src_dir"
   else
     echo "[..] No scripts/ beside $LOCAL_COMPOSE — fetching template from CDN..."
     download_template
@@ -435,14 +506,95 @@ echo ""
 SELF_CHECK_RC=0
 bash "$SCRIPTS_DIR/self-check.sh" --display || SELF_CHECK_RC=$?
 
+# ---------------------------------------------------------------------------
+# Claim the owner account.
+#
+# AFTER the self-check, not before: ensure-authelia.sh runs inside it and is what
+# creates users_database.yml in the first place, seeding the owner DISABLED. The
+# claim names that account, sets its password and enables it.
+#
+# This is deliberately NOT the same secret as DEFAULT_PWD. That one is an
+# app-seed secret injected into every app this box installs
+# (default_pwd / PCS_DEFAULT_PASSWORD / APP_DEFAULT_PASSWORD), so using it as the
+# human login would put the owner's own credential in every app's environment.
+#
+# Skipped silently when the box is already claimed, which is what makes a re-run
+# to update ask nothing.
+# ---------------------------------------------------------------------------
+USER_MGR="$SCRIPTS_DIR/tools/authelia-user-manager.sh"
+CLAIM_RESULT=""
+CLAIMED_NOW=false
+
+if [[ "$SELF_CHECK_RC" -eq 0 && -x "$USER_MGR" ]]; then
+  if "$USER_MGR" list 2>/dev/null | grep -q '"disabled":false'; then
+    : # already claimed — nothing to do, and nothing to say
+  else
+    # Username: flag > prompt > default 'admin'
+    if [[ -z "$CLAIM_USER" ]]; then
+      if ! prompt_line "Choose a username for this server's login [admin]: " CLAIM_USER; then
+        CLAIM_USER=""
+      fi
+    fi
+    [[ -n "$CLAIM_USER" ]] || CLAIM_USER="admin"
+
+    # Password: flag > --generate > prompt (twice) > leave unclaimed
+    if [[ -n "$CLAIM_PASSWORD" ]]; then
+      :
+    elif [[ "$CLAIM_GENERATE" == true ]]; then
+      :
+    else
+      _p1=""; _p2=""
+      if prompt_secret "Choose a password (min 8 chars, blank to skip): " _p1 && [[ -n "$_p1" ]]; then
+        if prompt_secret "Repeat it: " _p2 && [[ "$_p1" == "$_p2" ]]; then
+          CLAIM_PASSWORD="$_p1"
+        else
+          echo "[!!] Passwords did not match — leaving this server unclaimed."
+        fi
+      fi
+      unset _p1 _p2
+    fi
+
+    if [[ "$CLAIM_GENERATE" == true ]]; then
+      CLAIM_RESULT="$("$USER_MGR" claim --generate "$CLAIM_USER" 2>&1)" && CLAIMED_NOW=true || true
+    elif [[ -n "$CLAIM_PASSWORD" ]]; then
+      # Password over stdin so it never lands in this script's argv or the host
+      # process list — see the note in authelia-user-manager.sh.
+      CLAIM_RESULT="$(printf '%s' "$CLAIM_PASSWORD" | "$USER_MGR" claim "$CLAIM_USER" 2>&1)" && CLAIMED_NOW=true || true
+    fi
+    unset CLAIM_PASSWORD
+
+    if [[ "$CLAIMED_NOW" != true && -n "$CLAIM_RESULT" ]]; then
+      echo "[!!] Could not claim the account: $CLAIM_RESULT"
+    fi
+  fi
+fi
+
 echo ""
 if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
   echo "=== Installation complete ==="
   echo "  Domain:  https://${DOMAIN}"
   echo "  Install: ${APP_DIR}"
   echo ""
-  echo "Open https://${DOMAIN} in your browser — sign in with user 'admin' and the"
-  echo "password in DEFAULT_PWD (${APP_DIR}/.env)."
+  if [[ "$CLAIMED_NOW" == true ]]; then
+    echo "Open https://${DOMAIN} in your browser and sign in as '${CLAIM_USER}'."
+    if [[ "$CLAIM_GENERATE" == true ]]; then
+      # The ONLY time this password is ever shown. It is not stored anywhere in
+      # plaintext — only its argon2 digest reaches users_database.yml.
+      _gen="$(printf '%s' "$CLAIM_RESULT" | sed -n 's/.*"password":"\([^"]*\)".*/\1/p')"
+      echo ""
+      echo "  Password (shown once, not stored): ${_gen}"
+      unset _gen
+    fi
+  elif "$USER_MGR" list 2>/dev/null | grep -q '"disabled":false'; then
+    echo "Open https://${DOMAIN} in your browser to sign in."
+  else
+    echo "This server is NOT CLAIMED YET: no local account can log in, and the"
+    echo "login page will show no sign-in button. Claim it over SSH with:"
+    echo ""
+    echo "  sudo ${USER_MGR} claim <username>"
+    echo "      (reads the password from stdin, or pass --generate)"
+  fi
+  echo ""
   echo "To update, re-run this command (or wait for the nightly self-check)."
 else
   echo "=== Installation finished with self-check failures (exit ${SELF_CHECK_RC}) ==="

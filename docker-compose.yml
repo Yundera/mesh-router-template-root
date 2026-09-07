@@ -23,7 +23,7 @@ name: mesh
 
 services:
   mesh-router-tunnel:
-    image: ghcr.io/yundera/mesh-router-tunnel:1.2.10
+    image: ghcr.io/yundera/mesh-router-tunnel:1.3.0
     container_name: mesh-router-tunnel
     hostname: mesh-router-tunnel
     restart: unless-stopped
@@ -45,7 +45,7 @@ services:
       - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:1.0.11
+    image: ghcr.io/yundera/mesh-router-agent:1.1.1
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     restart: unless-stopped
@@ -61,7 +61,7 @@ services:
       pcs: null
 
   mesh-router-caddy:
-    image: ghcr.io/yundera/mesh-router-caddy:1.2.5
+    image: ghcr.io/yundera/mesh-router-caddy:1.2.6
     container_name: mesh-router-caddy
     hostname: mesh-router-caddy
     restart: unless-stopped
@@ -112,29 +112,79 @@ services:
       pcs: null
 
   dex:
-    image: ghcr.io/dexidp/dex:v2.43.1
+    # PINNED BY DIGEST TO A `master` BUILD, DELIBERATELY — not a release tag.
+    #
+    # The logout features this stack depends on are merged upstream but
+    # UNRELEASED: RP-Initiated Logout (PR #4674) and Back-Channel Logout with a
+    # `sid` claim (PR #4945). The newest release, v2.45.1, predates both and
+    # advertises no logout of any kind — which is why "log out" could not log
+    # anybody out.
+    #
+    # By DIGEST and not `:master`, because `:master` is a moving tag: every push
+    # to trunk would silently reach every box on the next ensure-stack-pulled.sh.
+    # This digest is the 2026-08-06 build, verified to advertise
+    # end_session_endpoint + backchannel_logout_supported, and to be multi-arch
+    # (amd64, arm64, arm, ppc64le, s390x).
+    #
+    # REPIN TO A RELEASE as soon as one ships with both PRs (expected > v2.45.1).
+    # The delta from v2.45.1 is large — trunk restructured server/ into logout/,
+    # backchannel/, discovery/, consent/, mfa/ packages — so this is a bigger
+    # unreleased surface than "a logout patch" implies.
+    image: ghcr.io/dexidp/dex@sha256:af9469509350ff3f6ca70127175a58e5ab085b9d18740fa4a590d9f03f0a026b
     container_name: dex
     hostname: dex
     restart: unless-stopped
     command: ["dex", "serve", "/data/config.yaml"]
+    environment:
+      # Gates the whole `sessions:` block in dex.config.yaml.tmpl. Dex REFUSES TO
+      # START with a sessions config and this unset ("sessions config requires
+      # sessions to be enabled"), so the two must move together.
+      #
+      # Turning it on gives Dex a real `dex_session` browser cookie, which is
+      # what makes it an OP you can log out of.
+      DEX_SESSIONS_ENABLED: "true"
     # If a connector's issuer is NOT served with a publicly-trusted cert (e.g. an
     # internal-CA-only test host), Dex's back-channel TLS to it will fail; in
     # that case ensure-dex.sh writes a CA bundle and you add:
-    #   environment:
     #     SSL_CERT_FILE: /data/ca-bundle.crt
+    # to the environment block above.
     volumes:
       # config.yaml (rendered) + dex.db (sqlite). This is CACHE, not precious
       # data — see the recovery note in scripts/self-check/ensure-dex.sh.
       - ${DATA_ROOT:-/DATA}/AppData/mesh/dex:/data
+      # Custom login frontend, overlaid onto the stock image. ensure-dex.sh (via
+      # tools/provision-dex-frontend.sh) renders these from the template's
+      # dex-theme/ before the stack comes up. Docker materialises a MISSING
+      # bind-mount source as a DIRECTORY, and a directory where login.html
+      # belongs breaks `dex` permanently — which is why that tool also runs from
+      # ensure-stack-up.sh.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/templates/login.html:/srv/dex/web/templates/login.html:ro
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/templates/header.html:/srv/dex/web/templates/header.html:ro
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/themes/mesh:/srv/dex/web/themes/mesh:ro
     expose:
       - "5556"   # OIDC web endpoints (Caddy terminates TLS), bound on pcs
-      - "5557"   # gRPC client-mgmt API — UNAUTHENTICATED, bound to dex-internal IP only
+      - "5557"   # gRPC client-mgmt API — UNAUTHENTICATED, bound to dex-internal only
     networks:
       pcs: null
-      # gRPC (5557) is bound to this static IP in config.yaml, so it is reachable
+      # gRPC (5557) is bound to `dex-grpc` in config.yaml, so it is reachable
       # ONLY by containers on dex-internal (just auth-registrar).
+      #
+      # THE ALIAS IS THE WHOLE MECHANISM, and it must stay network-scoped. Dex is
+      # multi-homed, so binding to its own container name is ambiguous — Docker's
+      # embedded DNS answers from the *querying* container's perspective and can
+      # hand back the `pcs`-side address, which would publish an unauthenticated
+      # client-minting API to every app on the box. An alias declared here and
+      # nowhere else exists in exactly one network's DNS scope, so it has exactly
+      # one A record and `net.Listen` can only bind to the dex-internal interface.
+      #
+      # This replaced a pinned ipv4_address (172.31.7.2 on a /29). That address
+      # was also the first one Docker's IPAM hands out dynamically, so any cycle
+      # where auth-registrar attached while Dex was between restarts stole it and
+      # wedged Dex forever on "Address already in use". There is no pinned address
+      # left to collide over; do not reintroduce one.
       dex-internal:
-        ipv4_address: 172.31.7.2
+        aliases:
+          - dex-grpc
     # No depends_on: authelia is in this stack but Dex must not block on it, and
     # Dex retries a connector's back-channel on use, so cold-boot ordering
     # resolves itself.
@@ -161,7 +211,7 @@ services:
   # scripts/self-check/ensure-authelia.sh into ${DATA_ROOT}/AppData/mesh/auth/.
   # =============================================================================
   authelia:
-    image: authelia/authelia:4.39
+    image: authelia/authelia:4.39.20
     container_name: authelia
     hostname: authelia
     restart: unless-stopped
@@ -209,15 +259,17 @@ services:
   # this is invisible.
   # =============================================================================
   auth-registrar:
-    image: ghcr.io/yundera/mesh-auth:1.1.3
+    image: ghcr.io/yundera/mesh-auth:1.1.6
     container_name: auth-registrar
     hostname: auth-registrar
     restart: unless-stopped
     environment:
       ISSUER_URL: https://auth-${DOMAIN}
       REGISTRAR_BACKEND: dex
-      # Dex gRPC is reachable only on the isolated dex-internal net (static IP)
-      DEX_GRPC_ADDR: 172.31.7.2:5557
+      # Dex gRPC is reachable only on the isolated dex-internal net, via the
+      # network-scoped `dex-grpc` alias declared on the dex service (no fixed
+      # address needed — the registrar dials the alias).
+      DEX_GRPC_ADDR: dex-grpc:5557
       # ephemeral in-container cache (NOT persisted) — see note above
       DEX_CLIENTS_DIR: /tmp/dex-clients
       # Allowed redirect-URI host suffixes (comma-separated). An app's permitted
@@ -225,6 +277,23 @@ services:
       # callback against this exact set. Must list the SAME suffixes the apps'
       # caddy_* labels use — the user domain plus the IP-based fallbacks.
       REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      # The one app allowed to register callbacks on the BARE suffixes
+      # (${DOMAIN} itself, not just <app>-${DOMAIN}) — i.e. whoever the root
+      # domain reverse-proxies to in the Caddyfile.
+      #
+      # Deliberately the SAME variable that drives that Caddy block: "the app
+      # that owns the bare hostname" and "the app the bare hostname routes to"
+      # are then one fact rather than two settings that can drift.
+      #
+      # It is a proxy upstream target, not an identity: `host.docker.internal`
+      # is legal here and is not a container name. The registrar validates it
+      # and falls back to "nobody owns the bare hosts" rather than guessing —
+      # check the `root app:` line in `docker logs auth-registrar` if a login on
+      # the bare domain still lands on <app>-${DOMAIN}.
+      #
+      # Needs mesh-auth >= 1.1.4; older images ignore this and apps keep the
+      # pre-existing bounce-to-<app>-${DOMAIN} behaviour.
+      ROOT_CLIENT_ID: "${DEFAULT_SERVICE_HOST:-maison}"
     expose:
       - "9092"
     networks:
@@ -239,14 +308,19 @@ networks:
   # Isolated gRPC-only net for the auth-registrar <-> Dex client-management API.
   # internal: true → no egress (Dex's egress comes from the pcs network it is also
   # on). App containers live only on pcs, so they cannot reach Dex's gRPC port
-  # (5557), which is bound to 172.31.7.2 on this net. The subnet is pinned so Dex
-  # can bind gRPC to a known IP — keep it clear of other host docker networks.
+  # (5557), which is bound to the `dex-grpc` alias on this net.
+  #
+  # NO ipam BLOCK, DELIBERATELY. Addressing here is entirely dynamic: Dex is found
+  # by its network-scoped alias, not by a pinned address, so there is no reserved
+  # IP for the dynamic allocator to collide with and no subnet to keep clear of
+  # other host docker networks. See the alias note on the dex service.
+  #
+  # Docker will NOT re-create an existing network with changed IPAM, so boxes that
+  # already have the old /29 need the stale bridge swept —
+  # scripts/migrations/2026-09-07-10-drop-dex-internal-ipam.sh does that.
   dex-internal:
     name: dex-internal
     internal: true
-    ipam:
-      config:
-        - subnet: 172.31.7.0/29
 
 volumes:
   caddy_data:
@@ -266,6 +340,13 @@ x-compose-app:
   title: Mesh Router
   category: Utilities
   developer: Mesh Router NSL.sh
+  # The mesh stack is platform, not an app. Since the phase-3 move to
+  # ${DATA_ROOT}/AppData/mesh it is a MANAGED Maison tile (Maison's managed scan
+  # is stat(${DATA_ROOT}/AppData/<name>/docker-compose.yml)), so without this it
+  # is offered for stop/uninstall like any store app — which would take the whole
+  # platform down. Replaces the PROTECTED_APPS env that Maison dropped at 1.1.5;
+  # inert on older images. Restart stays available.
+  view: system
   icon: https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/icon.png
   webui-host: nsl.sh
   webui-scheme: https

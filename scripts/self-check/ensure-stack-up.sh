@@ -35,6 +35,16 @@ if [ ! -f "$MESH_ROOT/Caddyfile" ] || [ -d "$MESH_ROOT/Caddyfile" ]; then
     cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 fi
 
+# Exactly the same hazard, one service over: the compose file bind-mounts
+# dex-frontend/templates/{login,header}.html as SINGLE FILES, so a `up -d` before
+# they exist makes Docker create them as directories and `dex` can never start
+# again ("not a directory"). The tool is idempotent and cheap; running it here as
+# well as in ensure-dex.sh means no path reaches `up` without those files.
+if [ -x "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" ]; then
+    "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" \
+        || echo "WARN: Dex frontend provisioning reported an error; continuing"
+fi
+
 cd "$APP_DIR"
 docker compose up -d --remove-orphans
 echo "Stack is up"

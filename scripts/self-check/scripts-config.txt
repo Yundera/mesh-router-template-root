@@ -8,6 +8,10 @@ ensure-logrotate.sh
 
 # Prerequisites
 ensure-docker-installed.sh
+# yq, for tools/authelia-user-manager.sh. Non-fatal if it cannot be installed —
+# nothing in the boot path needs it (ensure-dex.sh's claimed-ness probe fails
+# open without it); only the interactive user-management verbs do.
+ensure-yq-installed.sh
 ensure-env-valid.sh
 
 # Template sync / auto-update (no-op when MESH_AUTO_UPDATE=false).
@@ -22,6 +26,12 @@ ensure-email-synced.sh
 # connector's clientSecret. Both run BEFORE the stack comes up so docker compose
 # interpolates the secret and each service finds its config on first start.
 ensure-authelia.sh
+# ensure-dex-session-key.sh MUST run before ensure-dex.sh: it mints
+# DEX_SESSION_KEY into .env, which ensure-dex.sh interpolates into
+# `sessions.cookieEncryptionKey`. Unset renders an empty key, which Dex accepts
+# (cookies simply go unencrypted), so this is an ordering requirement rather than
+# a hard dependency.
+ensure-dex-session-key.sh
 ensure-dex.sh
 ensure-stack-pulled.sh
 ensure-stack-up.sh

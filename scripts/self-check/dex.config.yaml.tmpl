@@ -20,16 +20,72 @@ web:
 
 # Client-management gRPC API. auth-registrar (mesh-auth, REGISTRAR_BACKEND=dex)
 # calls CreateClient here when a PCS app first logs in. This API is
-# UNAUTHENTICATED, so it is bound to the isolated `dex-internal` network's static
-# IP ONLY (not 0.0.0.0). App containers live on `pcs` and therefore cannot reach
-# it; only auth-registrar (also on dex-internal) can. The IP is pinned in
-# docker-compose.yml — keep the two in sync.
+# UNAUTHENTICATED, so it is bound to the isolated `dex-internal` network ONLY
+# (not 0.0.0.0). App containers live on `pcs` and therefore cannot reach it; only
+# auth-registrar (also on dex-internal) can.
+#
+# `dex-grpc` is a NETWORK-SCOPED ALIAS declared on the dex service in
+# docker-compose.yml, and it resolves in exactly one network's DNS scope — so it
+# has one A record and Dex binds to the dex-internal interface and nothing else.
+# Do NOT change this to `dex`, `0.0.0.0`, or a literal IP: `dex` is ambiguous
+# (Dex is multi-homed and Docker's resolver can return the pcs-side address),
+# 0.0.0.0 publishes the API to every app container, and a literal IP is what
+# collided with the dynamic allocator before this was an alias. Keep the alias
+# name in sync with docker-compose.yml.
 grpc:
-  addr: 172.31.7.2:5557
+  addr: dex-grpc:5557
+
+# Custom login UI. `dir` MUST be set to the on-disk web dir — without it Dex
+# serves its embedded (in-binary) assets and ignores files on disk, so the
+# bind-mounts have no effect. /srv/dex/web is the image's complete stock web tree
+# (templates + static + themes/{light,dark}); docker-compose.yml overlays our
+# login.html/header.html and themes/mesh onto it, and ensure-dex.sh provisions
+# those from the template's dex-theme/.
+#
+# `issuer` is the display name in the "Log in to <issuer>" heading and <title> —
+# deliberately this PCS's own domain, not a product name. The box belongs to its
+# owner, so the chrome stays neutral. It doubles as the anti-phishing cue: it
+# tells you which PCS you are handing credentials to.
+frontend:
+  dir: /srv/dex/web
+  theme: mesh
+  issuer: ${DOMAIN}
 
 oauth2:
   # Every PCS app is first-party; skip the per-app consent screen.
   skipApprovalScreen: true
+
+# Dex's own browser session. Requires DEX_SESSIONS_ENABLED=true (set on the dex
+# service in docker-compose.yml) — the config block alone is refused without it.
+#
+# This is what makes Dex an OP you can log out of. Without it Dex holds no
+# session, advertises no `end_session_endpoint`, and every app's gate has to be
+# ended one at a time; with it, Dex advertises RP-Initiated Logout AND
+# Back-Channel Logout, so one logout ends every app through the spec.
+#
+# It also means the connector chooser is skipped because Dex remembers the
+# SESSION, rather than through any cookie-replay trick in the Caddyfile.
+sessions:
+  cookieName: dex_session
+
+  # 720h = 30 days, matching the rest of the stack's session policy (Authelia's
+  # session cookie and the AppShield gates' SESSION_DURATION_HOURS).
+  # BOTH must be set: Dex defaults to 24h absolute and a 1h IDLE timeout, so
+  # taking the defaults would quietly cut SSO to one hour of inactivity — a
+  # regression users feel immediately and would not attribute to this file.
+  absoluteLifetime: "720h"
+  validIfNotUsedFor: "720h"
+
+  # Encrypts the session cookie. Minted by ensure-dex-session-key.sh; must be
+  # 16, 24 or 32 BYTES. Empty is legal and simply leaves cookies unencrypted.
+  cookieEncryptionKey: "${DEX_SESSION_KEY}"
+
+  # Share one Dex session across every client. The default is "none", which would
+  # make each app re-run the connector and bring the chooser back on every single
+  # app — precisely the behaviour this exists to remove. Safe here because every
+  # client on a PCS is first-party and belongs to the same owner (the same reason
+  # skipApprovalScreen is on above).
+  ssoSharedWithDefault: all
 
 # No local password DB. Dex is a pure BROKER: it holds no credential of its own,
 # so every interactive login is federated to a connector.
@@ -45,30 +101,19 @@ oauth2:
 # secrets), and apps re-register on every login, so the client list here is
 # disposable cache that rebuilds itself.
 
+# EVERY connector is appended by ensure-dex.sh — none are declared here, and the
+# key below is deliberately left with no items.
+#
+# "Local Account" (Authelia) used to live here as a static entry. It moved into
+# the script because it is now CONDITIONAL: a freshly-installed box seeds its
+# owner account `disabled: true` (unclaimed), and Authelia refuses a disabled
+# user as "user not found". Rendering the button unconditionally meant a brand
+# new box advertised a login that could not possibly work.
+#
+# The `casaos` connector is long gone with CasaOS and its oidc bridge.
+#
+# An empty `connectors:` is valid YAML for Dex and is a legitimate transient
+# state (unclaimed, with no drop-in), not a config error. ensure-dex.sh logs
+# loudly when it renders one, since it means nobody can log in interactively
+# until the account is claimed.
 connectors:
-  # Local Account — Authelia, the PCS-local credential store. Publicly-trusted
-  # host so Dex's back-channel TLS validates against system roots. Authelia's own
-  # login page carries the password-reset link.
-  - type: oidc
-    id: authelia
-    name: Local Account
-    config:
-      issuer: https://local-auth-${DOMAIN}
-      clientID: dex
-      clientSecret: "${AUTHELIA_DEX_SECRET}"
-      # Dex's own connector callback.
-      redirectURI: https://auth-${DOMAIN}/callback
-      # Authelia 4.39 returns scope claims (preferred_username, email, name) from
-      # its userinfo endpoint rather than in the ID token, so Dex must fetch it.
-      getUserInfo: true
-      userNameKey: preferred_username
-      scopes:
-        - openid
-        - profile
-        - email
-
-  # REMOVED: the `casaos` connector, which federated to casaos-oidc-bridge and
-  # authenticated against CasaOS's /v1/users/login. Authelia above is the local
-  # credential store now, so that path was a second local identity for the same
-  # person — and one that dies with CasaOS. The bridge service went with it; it
-  # had no other consumer.

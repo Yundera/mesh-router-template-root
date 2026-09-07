@@ -100,12 +100,14 @@ holding their own credentials.
 
 - **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
   `/.well-known/openid-configuration`). A pure broker: it holds no credential of its
-  own, and renders a connector-chooser login page.
+  own, and renders a connector-chooser login page themed from `dex-theme/`. It keeps
+  its own 30-day browser session, so it advertises `end_session_endpoint` and
+  back-channel logout — one logout ends every app through the spec.
 - **authelia** — the PCS-local credential store at `https://local-auth-${DOMAIN}`,
   federated by Dex as the "Local Account" connector. Owns the account that used to
-  live in CasaOS, seeded from `DEFAULT_PWD` as user `admin`. Its own login page
-  carries the password-reset link, which mails through the `smtp` relay in this stack.
-  Exactly one OIDC client (Dex); per-app clients stay on Dex's gRPC path.
+  live in CasaOS. Its own login page carries the password-reset link, which mails
+  through the `smtp` relay in this stack. Exactly one OIDC client (Dex); per-app
+  clients stay on Dex's gRPC path.
 - **auth-registrar** — apps self-register as OIDC clients (`POST /register` to
   `http://auth-registrar:9092`, internal only); the registrar creates the client in Dex
   over its gRPC API. Caller identity comes from a PTR lookup of the source container
@@ -116,7 +118,44 @@ holding their own credentials.
   `${DATA_ROOT}/AppData/mesh/dex` is cache and safe to delete; Authelia's under
   `${DATA_ROOT}/AppData/mesh/auth` holds the local account — back it up.
 - Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
-  `dex-internal` network, never `pcs`.
+  `dex-internal` network via the network-scoped `dex-grpc` alias, never `pcs` and
+  never `0.0.0.0`.
+- **Extending it.** Drop a connector into
+  `${DATA_ROOT}/AppData/mesh/dex/connectors.d/*.yaml` (runtime dir, so a template
+  update never reverts it) and it is concatenated into Dex's config on the next
+  self-check. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
+  discovery document **at startup and treats a failure as fatal**, so a drop-in
+  pointing at an issuer that is down takes down *all* interactive login on the box.
+
+#### Claiming the login
+
+A newly-installed server seeds its owner account **unclaimed** — the account exists
+but is disabled, and Dex renders **no sign-in button at all** until it is claimed.
+That is deliberate: there is no default password to guess, and nothing advertises a
+login that cannot work.
+
+`install.sh` normally claims it for you — it prompts for a username and password, or
+takes `--claim-user` / `--claim-password`, or mints one with `--generate`. A box that
+was updated rather than installed (the nightly self-check, `--yes` with no
+credentials) stays unclaimed until you claim it over SSH:
+
+```bash
+# choose your own password
+printf '%s' 'your-password' | \
+  sudo /DATA/AppData/mesh/scripts/tools/authelia-user-manager.sh claim <username>
+
+# or have one minted and printed once
+sudo /DATA/AppData/mesh/scripts/tools/authelia-user-manager.sh claim --generate <username>
+```
+
+The username you pick becomes the OIDC `preferred_username` every app keys its
+per-user account on, so it is free to choose now and expensive to change later —
+`claim` refuses to run twice without `--force`, and there is no rename verb. The same
+script also does `list`, `add`, `delete`, `set-password` and `set-email`.
+
+**This is NOT `DEFAULT_PWD`.** That is an app-seed secret handed to every app this
+box installs (`$APP_DEFAULT_PASSWORD` and friends); using it as the human login would
+put your own password in every app's environment.
 
 **REMOVED:** `casaos`, and with it `casaos-oidc-bridge` and the disposable Dex
 break-glass admin. Authelia is the local credential now, so the bridge was a second
@@ -244,8 +283,10 @@ it entirely — the stack works but stays manual-update.
    branch), runs any pending **migrations** from the downloaded tree, atomically
    swaps `template/`, copies `docker-compose.yml`, `Caddyfile` and `scripts/` to their live
    locations (auto-update)
-4. **Stack** — re-detect public IP (updates `.env` if changed), provision Dex SSO
-   (`ensure-dex.sh`: render config, seed `BRIDGE_SECRET` + break-glass admin), `docker compose pull`, `up -d`
+4. **Stack** — re-detect public IP (updates `.env` if changed), provision Authelia
+   (`ensure-authelia.sh`: secrets, JWKS key, config, owner-account seed), mint the Dex
+   session key, provision Dex SSO (`ensure-dex.sh`: render config, append connectors,
+   provision the login theme), `docker compose pull`, `up -d`
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
    end-to-end (`curl -H 'X-Mesh-Trace: 1' https://$DOMAIN/`)
 
@@ -275,7 +316,9 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 |-----|---------|---------|
 | `PROVIDER_STR` | _(required)_ | Provider connection string, `<backend_url>,<userid>,<signature>`. Written by `install.sh --provider` |
 | `DOMAIN` | _(required)_ | This box's domain, e.g. `alice.nsl.sh` |
-| `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token |
+| `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token. **Not the login password** — see "Claiming the login" |
+| `LOCAL_ADMIN_USER` | _(set at claim)_ | The owner's chosen username. Written by `authelia-user-manager.sh claim`; `ensure-authelia.sh` reads it to keep the right account's email in step with `EMAIL` |
+| `DEX_SESSION_KEY` | _(generated)_ | AES key encrypting Dex's session cookie. Rotating it costs one round of re-logins |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
 | `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
@@ -287,8 +330,8 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 `DEFAULT_PASSWORD` and `MESH_SELF_CHECK_CRON`. Existing boxes are renamed in place by
 `scripts/migrations/2026-08-02-01-rename-env-keys.sh` (values are moved, never regenerated);
 `ensure-env-valid.sh` carries the same fix as a fallback for boxes the migration never reaches
-(`MESH_AUTO_UPDATE=false`). The names now match `Yundera/template-root` so the same admin app
-can run against both — see [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md).
+(`MESH_AUTO_UPDATE=false`). The names match `Yundera/template-root`, which is where they came
+from — see [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md).
 
 Because the compose file and `Caddyfile` are template-owned, **hand-edits to the live
 `docker-compose.yml` or `${DATA_ROOT}/AppData/mesh/Caddyfile` are lost on the next sync** —
