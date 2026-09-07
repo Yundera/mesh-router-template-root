@@ -51,15 +51,43 @@ mkdir -p "$NEW_DIR"
 # Move everything the old directory holds. In practice that is docker-compose.yml and
 # .env, but a crashed env_set can leave a .env.XXXXXX temp file behind and there is no
 # reason to strand it.
+ENV_MGR="$SELF_DIR/../tools/env-file-manager.sh"
+
+# Keys install.sh owns — the ones it env_sets from this run's CLI arguments. On a
+# .env clash these, and only these, must win: everything else at the new path was
+# backfilled by ensure-env-valid against a file that turns out not to be the live
+# one (a freshly generated DEFAULT_PWD, a default EMAIL, DEFAULT_SERVICE_HOST=maison
+# from the default rather than from the casaos repoint). Letting those win would
+# rotate the platform secret every installed app derives its credentials from.
+INSTALLER_OWNED_KEYS="PROVIDER_STR DOMAIN DATA_ROOT MESH_AUTO_UPDATE UPDATE_URL MESH_TEMPLATE_URL"
+
 moved=0
 shopt -s dotglob nullglob
 for item in "$OLD_DIR"/*; do
     base="$(basename "$item")"
     if [ -e "$NEW_DIR/$base" ]; then
-        # The destination already has this name. The old copy is the live one — the new
-        # directory is MESH_ROOT, whose contents are template-owned state, so a clash
-        # means something unexpected. Keep the live file, park the other.
-        echo "WARN: $NEW_DIR/$base already exists; backing it up as $base.pre-move"
+        if [ "$base" = ".env" ]; then
+            # Both paths hold a .env. That happens when install.sh from the release
+            # that introduced this move ran before the migration: it wrote a fresh
+            # .env at the new path carrying this run's install intent, while the old
+            # path still holds the box's real state.
+            #
+            # Neither side is disposable, so MERGE rather than pick. "Old wins"
+            # reverts the upgrade in the same cycle that applied it — root domain
+            # back to casaos:8080 (502, since CasaOS is gone), UPDATE_URL gone so
+            # the next nightly rolls the box back to stable. "New wins" drops
+            # DEFAULT_PWD / AUTHELIA_DEX_SECRET / DEX_SESSION_KEY and logs everyone
+            # out. Old is the base; the installer-owned keys are overlaid on it.
+            echo "WARN: $NEW_DIR/.env already exists; merging its install keys into $OLD_DIR/.env"
+            for key in $INSTALLER_OWNED_KEYS; do
+                value="$(bash "$ENV_MGR" get "$key" "$NEW_DIR/$base" 2>/dev/null || true)"
+                [ -n "$value" ] || continue
+                bash "$ENV_MGR" set "$key" "$value" "$item"
+                echo "  merged $key"
+            done
+        else
+            echo "WARN: $NEW_DIR/$base already exists; backing it up as $base.pre-move"
+        fi
         mv -f "$NEW_DIR/$base" "$NEW_DIR/$base.pre-move"
     fi
     mv "$item" "$NEW_DIR/$base"

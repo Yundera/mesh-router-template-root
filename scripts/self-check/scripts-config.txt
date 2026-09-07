@@ -46,4 +46,10 @@ ensure-maison-stack.sh
 ensure-maison-app-mirror.sh
 
 # Verification (check-only, no repair)
+# ensure-root-domain.sh MUST stay after ensure-maison-stack.sh: the root domain's
+# default target is Maison, so probing before it is up reports a failure that is only
+# a race. Covers the one surface no other step looks at — ${DOMAIN} and the catch-all
+# come from the Caddyfile's DEFAULT_SERVICE_HOST, not from any container label, so a
+# stale value there passes every other check while the front door 502s.
+ensure-root-domain.sh
 ensure-route-registered.sh

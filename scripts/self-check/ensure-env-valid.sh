@@ -68,6 +68,36 @@ ensure_default "PGID" "1000"
 ensure_default "EMAIL" "admin@${DOMAIN}"
 ensure_default "MESH_AUTO_UPDATE" "true"
 
+# Dead value, not a preference: CasaOS is not in this template's compose file, so
+# `casaos` can never resolve on the `pcs` network again. A box still carrying it 502s
+# on ${DOMAIN}, on both bare-IP hostnames and on the catch-all — all three come from
+# this key via the Caddyfile — with nothing else to indicate why. An operator who
+# pointed the root domain at some other service keeps their choice.
+#
+# scripts/migrations/2026-08-02-03-authelia-maison.sh is the normal path; this is the
+# self-healing one, for the same reasons as heal_renamed_key above, plus a box with
+# MESH_AUTO_UPDATE=false, where no migration ever runs at all.
+if [ "$(get_env_value DEFAULT_SERVICE_HOST)" = "casaos" ]; then
+    set_env_value "DEFAULT_SERVICE_HOST" "maison"
+    set_env_value "DEFAULT_SERVICE_PORT" "80"
+    echo "Repointed root domain: casaos:8080 -> maison:80"
+    FIXED=1
+fi
+
+# Deprecated update-source key (see scripts/migrations/2026-08-02-02-rename-update-url.sh).
+# Left in place it silently pins the box to whatever branch it names, because
+# mesh_template_url() falls through to it when UPDATE_URL is absent — which is how a
+# box installed with --channel main ends up updating from stable.
+if [ -n "$(get_env_value MESH_UPDATE_CHANNEL)" ]; then
+    if [ -z "$(get_env_value UPDATE_URL)" ]; then
+        set_env_value "UPDATE_URL" "$(mesh_channel_url "$(get_env_value MESH_UPDATE_CHANNEL)")"
+        echo "Expanded MESH_UPDATE_CHANNEL into UPDATE_URL"
+    fi
+    bash "$ENV_MGR" delete MESH_UPDATE_CHANNEL "$ENV_FILE"
+    echo "Dropped deprecated MESH_UPDATE_CHANNEL"
+    FIXED=1
+fi
+
 # Platform secret consumed by app-store apps. Generate once, never rotate —
 # regenerating would invalidate every app's DB password and admin token.
 if [ -z "$(get_env_value DEFAULT_PWD)" ]; then

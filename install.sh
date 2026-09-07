@@ -449,6 +449,29 @@ fi
 # ensure-env-valid backfills DEFAULT_PWD, service host/port, PUID/PGID, and
 # EMAIL; ensure-public-ip detects PUBLIC_IP; ensure-template-sync owns compose.
 # ---------------------------------------------------------------------------
+# Adopt a pre-move .env from the CasaOS-era path BEFORE writing anything.
+#
+# Until scripts/migrations/2026-08-02-04-move-app-dir.sh has run, the live .env
+# is at /DATA/AppData/casaos/apps/mesh/.env while APP_DIR here is already the new
+# /DATA/AppData/mesh. Writing straight to APP_DIR creates a SECOND .env, and that
+# migration — which runs later in this same invocation, from inside the self-check —
+# resolves the clash by keeping the old file. Everything env_set writes below
+# (UPDATE_URL, the renamed keys) and everything the migrations then apply to it
+# (the casaos:8080 -> maison:80 repoint) is silently discarded, and the box comes
+# up on stale config with a 502 on the root domain.
+#
+# Moving the old file into place first is what makes the "preserving existing keys
+# on re-run" promise true ACROSS the layout change: the box's real state
+# (DEFAULT_PWD, AUTHELIA_DEX_SECRET, DEX_SESSION_KEY, ...) is the base, and this
+# run's values are overlaid on it. Mirrors the APP_DIR fallback in
+# scripts/library/common.sh — keep the two in sync. Moving the DIRECTORY (and
+# leaving the symlink behind) still belongs to the migration.
+LEGACY_APP_DIR="/DATA/AppData/casaos/apps/mesh"
+if [[ ! -L "$LEGACY_APP_DIR" && -f "$LEGACY_APP_DIR/.env" && ! -f "$APP_DIR/.env" ]]; then
+  mv "$LEGACY_APP_DIR/.env" "$APP_DIR/.env"
+  echo "[OK] Adopted existing .env from $LEGACY_APP_DIR"
+fi
+
 echo "[..] Writing .env (preserving existing keys on re-run)..."
 ENV_FILE="$APP_DIR/.env"
 env_set() {
