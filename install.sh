@@ -548,6 +548,22 @@ USER_MGR="$SCRIPTS_DIR/tools/authelia-user-manager.sh"
 CLAIM_RESULT=""
 CLAIMED_NOW=false
 
+# Name of the account that can log in, for the summary at the end. `claim` records
+# it in LOCAL_ADMIN_USER; the list fallback covers a box claimed before that key
+# existed, or one where the .env write failed (claim only warns on that). Empty is
+# a valid answer — the caller prints a pointer instead of guessing "admin", which
+# would be wrong for anyone who chose a different name.
+claimed_login_name() {
+  local name
+  name="$(grep -m1 -E '^LOCAL_ADMIN_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)" || true
+  if [[ -z "$name" ]]; then
+    name="$("$USER_MGR" list 2>/dev/null \
+      | grep -o '{"username":"[^"]*"[^{]*"disabled":false' \
+      | head -1 | sed 's/{"username":"\([^"]*\)".*/\1/')" || true
+  fi
+  printf '%s' "$name"
+}
+
 if [[ "$SELF_CHECK_RC" -eq 0 && -x "$USER_MGR" ]]; then
   if "$USER_MGR" list 2>/dev/null | grep -q '"disabled":false'; then
     : # already claimed — nothing to do, and nothing to say
@@ -599,17 +615,35 @@ if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
   echo "  Install: ${APP_DIR}"
   echo ""
   if [[ "$CLAIMED_NOW" == true ]]; then
-    echo "Open https://${DOMAIN} in your browser and sign in as '${CLAIM_USER}'."
+    echo "Open https://${DOMAIN} in your browser and sign in."
+    echo ""
+    echo "  Login:    ${CLAIM_USER}"
     if [[ "$CLAIM_GENERATE" == true ]]; then
       # The ONLY time this password is ever shown. It is not stored anywhere in
       # plaintext — only its argon2 digest reaches users_database.yml.
       _gen="$(printf '%s' "$CLAIM_RESULT" | sed -n 's/.*"password":"\([^"]*\)".*/\1/p')"
-      echo ""
-      echo "  Password (shown once, not stored): ${_gen}"
+      echo "  Password: ${_gen}"
+      echo "            (shown once and never stored — save it now)"
       unset _gen
+    else
+      echo "  Password: the one you just chose"
     fi
   elif "$USER_MGR" list 2>/dev/null | grep -q '"disabled":false'; then
-    echo "Open https://${DOMAIN} in your browser to sign in."
+    # Re-run against an already-claimed box: the claim block above was skipped, so
+    # CLAIM_USER is empty here. Nothing can print the password — only its argon2
+    # digest is on disk — but naming the account still saves a trip into
+    # users_database.yml to recall which login this particular box uses.
+    _login="$(claimed_login_name)"
+    echo "Open https://${DOMAIN} in your browser and sign in."
+    echo ""
+    if [[ -n "$_login" ]]; then
+      echo "  Login:    ${_login}"
+    else
+      echo "  Login:    see: sudo ${USER_MGR} list"
+    fi
+    echo "  Password: the one you set when you claimed this server"
+    echo "            (forgotten? sudo ${USER_MGR} set-password ${_login:-<username>})"
+    unset _login
   else
     echo "This server is NOT CLAIMED YET: no local account can log in, and the"
     echo "login page will show no sign-in button. Claim it over SSH with:"
