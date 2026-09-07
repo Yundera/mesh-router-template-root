@@ -84,8 +84,13 @@ echo "This will remove:"
 echo "  - docker stacks 'mesh' (tunnel, agent, caddy, smtp, dex, authelia,"
 echo "    auth-registrar) and 'maison' (dashboard + gate) + their volumes"
 echo "  - the nightly self-check cron entry + /etc/logrotate.d/mesh-router"
-echo "  - $APP_DIR"
 echo "  - $MESH_ROOT"
+# Named explicitly: this IS deleted, and until now the prompt did not say so —
+# it listed $APP_DIR and $MESH_ROOT, which are the same path since phase 3.
+echo "  - ${DATA_ROOT:-/DATA}/AppData/maison (dashboard settings + store cache)"
+# Only when they differ — phase 3 collapsed APP_DIR into MESH_ROOT, so on a
+# current box printing both would list the same path twice.
+[ "$APP_DIR" != "$MESH_ROOT" ] && echo "  - $APP_DIR"
 echo ""
 echo "It will NOT touch Docker, user-installed apps, or user data"
 echo "(/DATA/Documents, /DATA/Downloads, /DATA/Media, other /DATA/AppData apps)."
@@ -106,27 +111,39 @@ if [[ "$ASSUME_YES" != true ]]; then
 fi
 
 # 1. Stop & remove the docker stack
+#
+# EVERY project, on EVERY path. This used to be an if/else: the mesh project was
+# torn down when its compose file existed, and the loop below only ran in the
+# `else`, i.e. when that file was MISSING. So on an ordinary uninstall — the
+# common case, where the file is present — the maison project was never brought
+# down at all, and step 4 then deleted ${DATA_ROOT}/AppData/maison out from under
+# two still-running containers. The symptoms are `maison` and `maison-app` left
+# Up with no project directory, and `pcs` refusing to go because they are still
+# attached to it.
+#
+# Tear projects down rather than naming containers: the old hand-maintained name
+# list had already missed dex, casaos-oidc-bridge and auth-registrar before
+# authelia, maison and maison-app were added, and the next release will add more.
+# `down` also removes each project's own networks.
 if command -v docker >/dev/null 2>&1; then
-  if [[ -f "$APP_DIR/docker-compose.yml" ]]; then
-    echo "[..] Stopping mesh stack (docker compose down)..."
-    (cd "$APP_DIR" && docker compose down -v --remove-orphans) || true
-  else
-    echo "[..] compose file missing; removing known containers by name..."
-    # Tear down BOTH compose projects rather than naming containers. The old
-    # hand-maintained list already missed dex, casaos-oidc-bridge and
-    # auth-registrar; this release adds authelia, maison and maison-app, and the
-    # next one will add more. `down` also removes each project's own networks.
-    for proj_dir in "$APP_DIR" "${DATA_ROOT:-/DATA}/AppData/maison"; do
-        if [ -f "$proj_dir/docker-compose.yml" ]; then
-            docker compose --project-directory "$proj_dir" \
-                -f "$proj_dir/docker-compose.yml" down --remove-orphans -v >/dev/null 2>&1 || true
-        fi
-    done
-    # Belt and braces for anything a broken/absent compose file left behind.
-    docker rm -f mesh-router-tunnel mesh-router-agent mesh-router-caddy smtp \
-        dex authelia auth-registrar casaos casaos-oidc-bridge maison maison-app >/dev/null 2>&1 || true
-  fi
-  # Remove the pcs network only if nothing else is attached (fails harmlessly otherwise).
+  echo "[..] Stopping stacks (docker compose down)..."
+  for proj_dir in "$APP_DIR" "${DATA_ROOT:-/DATA}/AppData/maison"; do
+      if [[ -f "$proj_dir/docker-compose.yml" ]]; then
+          docker compose --project-directory "$proj_dir" \
+              -f "$proj_dir/docker-compose.yml" down --remove-orphans -v >/dev/null 2>&1 || true
+      fi
+  done
+
+  # Belt and braces for anything a broken, absent or already-deleted compose file
+  # left behind — including a box uninstalled by an older version of this script,
+  # which is precisely how orphaned maison containers come to exist.
+  docker rm -f mesh-router-tunnel mesh-router-agent mesh-router-caddy smtp \
+      dex authelia auth-registrar casaos casaos-oidc-bridge maison maison-app >/dev/null 2>&1 || true
+
+  # Remove the networks only if nothing else is attached (fails harmlessly
+  # otherwise). Must come AFTER the sweep above: while any container is still on
+  # `pcs`, this is the "resource is still in use" that used to be the only hint
+  # that something had been left running.
   docker network rm pcs dex-internal >/dev/null 2>&1 || true
   echo "[OK] Stack removed"
 else
@@ -163,7 +180,10 @@ rm -rf "$MESH_ROOT"
 # dashboard's own settings/store cache. NOT the sibling ${DATA_ROOT}/AppData/<app>
 # folders: those are user app data and predate this stack.
 rm -rf "${DATA_ROOT:-/DATA}/AppData/maison"
-echo "[OK] Removed $APP_DIR and $MESH_ROOT"
+# Name all three. This used to print "$APP_DIR and $MESH_ROOT" — the same value
+# twice once phase 3 collapsed them — and never mentioned the maison directory it
+# had just deleted.
+echo "[OK] Removed $MESH_ROOT and ${DATA_ROOT:-/DATA}/AppData/maison"
 
 echo ""
 echo "=== Uninstall complete ==="
