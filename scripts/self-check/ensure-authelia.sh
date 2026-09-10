@@ -65,7 +65,9 @@ USERS_DB="$AUTH_ROOT/users_database.yml"
 DEX_HASH_FILE="$SECRETS_DIR/dex-client-hash"
 
 # One image for both hashes: argon2 (user password) + pbkdf2 (client secret).
-AUTHELIA_IMAGE="authelia/authelia:4.39.20"
+# Same tag as the authelia service in docker-compose.yml — see the note there on
+# why that pin may only ever go up.
+AUTHELIA_IMAGE="authelia/authelia:4.39.25"
 
 # --- hashing helper ----------------------------------------------------------
 # Every hash on this box is produced by `docker run`-ing the authelia image, and

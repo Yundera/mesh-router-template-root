@@ -211,7 +211,16 @@ services:
   # scripts/self-check/ensure-authelia.sh into ${DATA_ROOT}/AppData/mesh/auth/.
   # =============================================================================
   authelia:
-    image: authelia/authelia:4.39.20
+    # NEVER LOWER THIS PIN. Authelia migrates db.sqlite forward on every start and
+    # an older binary cannot open the result — it exits with a misleading "the
+    # configured encryption key does not appear to be valid for this database".
+    # The floating 4.39 tag took boxes to 4.39.21/.22 (schema 25-28), and the
+    # 4.39.20 pin that followed took every one of them offline. 4.39.23 added
+    # schema 29, so nothing below 4.39.23 is safe for the fleet any more.
+    # ensure-stack-up.sh raises a pin that is behind a box's database, but that
+    # is a safety net, not permission. Keep AUTHELIA_IMAGE in
+    # self-check/ensure-authelia.sh and tools/authelia-user-manager.sh in step.
+    image: authelia/authelia:4.39.25
     container_name: authelia
     hostname: authelia
     restart: unless-stopped

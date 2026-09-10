@@ -45,6 +45,25 @@ if [ -x "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" ]; then
         || echo "WARN: Dex frontend provisioning reported an error; continuing"
 fi
 
+FAILED=0
+
+# Never start Authelia on an image older than its database (see
+# authelia_enforce_db_floor in library/common.sh). Here, right before `up` and
+# after every step that can replace the compose file, so the pin it checks is the
+# pin that gets started.
+authelia_enforce_db_floor "$APP_DIR/docker-compose.yml" "$MESH_ROOT/auth" || FAILED=1
+
 cd "$APP_DIR"
 docker compose up -d --remove-orphans
-echo "Stack is up"
+echo "Containers started"
+
+# `up -d` exiting 0 only means the containers were created. Waiting for them to
+# stay up is what turns a crash-looping service into a failed step — and so into
+# install.sh's "finished with self-check failures" instead of "Installation complete".
+if wait_stack_settled 90 15; then
+    echo "Stack is up"
+else
+    FAILED=1
+fi
+
+exit "$FAILED"

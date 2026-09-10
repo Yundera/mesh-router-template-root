@@ -47,7 +47,7 @@ LOCK_FILE="$AUTH_ROOT/.users-db.lock"
 # Must stay in sync with AUTHELIA_IMAGE in self-check/ensure-authelia.sh — both
 # hash with the same binary, and a version skew there would mean two different
 # argon2 parameter sets in one users_database.yml.
-AUTHELIA_IMAGE="authelia/authelia:4.39.20"
+AUTHELIA_IMAGE="authelia/authelia:4.39.25"
 
 # The owner account. Deleting it is unrecoverable: the seed branch in
 # ensure-authelia.sh is guarded by a FILE-level check (`grep -q "password:"`), so

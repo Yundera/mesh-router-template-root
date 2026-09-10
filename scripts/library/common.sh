@@ -157,3 +157,124 @@ mesh_template_url() {
     [ -n "$channel" ] || channel="$MESH_DEFAULT_CHANNEL"
     mesh_channel_url "$channel"
 }
+
+# Never start Authelia on an image older than its database.
+#
+# Authelia migrates db.sqlite FORWARD on every start, and an older binary cannot
+# open what a newer one wrote. It does not say so: v4.39.21 added V0025
+# StorageAAD (encrypted rows gain associated data), and v4.39.20 pointed at that
+# database exits with
+#     the configured encryption key does not appear to be valid for this database
+# about a key that is perfectly fine. Dex crash-loops behind it (its only
+# connector answers 503) and every interactive login on the box is gone.
+#
+# Not hypothetical. The compose file tracked the floating `4.39` tag, so nightly
+# pulls took boxes to 4.39.21/.22; pinning 4.39.20 on 2026-09-07 downgraded every
+# one of them the following night. The error text points at rotating the storage
+# key, which would have thrown the database away for nothing.
+#
+# `storage migrate history` records the Authelia version that applied each
+# migration. Its last row is a binary known to open this exact database, so a pin
+# older than that is raised to it — never to anything newer, never lowered.
+#
+# Read-only and secret-free: the history query does not check the encryption key,
+# so the probe mounts the auth dir :ro, with no network and a throwaway key. Fails
+# open (changes nothing) whenever it cannot tell: no database yet, a pin that is
+# not an exact X.Y.Z (a floating tag or a digest), or a probe that errors.
+# Returns non-zero only when it found a downgrade and could not rewrite the pin.
+#
+# Usage: authelia_enforce_db_floor <compose-file> <auth-dir>
+authelia_enforce_db_floor() {
+    local compose="$1" auth_dir="$2"
+    local pinned pinned_ver probe_dir out db_ver
+
+    [ -f "$auth_dir/db.sqlite" ] && [ -f "$compose" ] || return 0
+    command -v docker >/dev/null 2>&1 || return 0
+
+    pinned="$(grep -oE '^[[:space:]]*image:[[:space:]]*authelia/authelia:[^[:space:]"#]+' "$compose" \
+        | head -n1 | sed -E 's/^[[:space:]]*image:[[:space:]]*//' || true)"
+    pinned_ver="${pinned##*:}"
+    [[ "$pinned_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+
+    probe_dir="$(mktemp -d)"
+    printf 'storage:\n  encryption_key: %s\n  local:\n    path: /auth/db.sqlite\n' \
+        'migration-history-probe-not-a-real-key' > "$probe_dir/probe.yml"
+    chmod 644 "$probe_dir/probe.yml"
+    if ! out="$(docker run --rm --network none \
+            -v "$auth_dir:/auth:ro" -v "$probe_dir/probe.yml:/probe.yml:ro" \
+            "$pinned" authelia storage migrate history --config /probe.yml 2>&1)"; then
+        rm -rf "$probe_dir"
+        log_warn "Authelia pin check skipped: could not read the migration history with $pinned"
+        return 0
+    fi
+    rm -rf "$probe_dir"
+
+    db_ver="$(printf '%s\n' "$out" \
+        | awk '$NF ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { v = $NF } END { sub(/^v/, "", v); print v }')"
+    [ -n "$db_ver" ] || return 0
+    # Equal or newer pin: sort -V puts the database version first.
+    [ "$(printf '%s\n' "$pinned_ver" "$db_ver" | sort -V | head -n1)" = "$db_ver" ] && return 0
+
+    sed -i -E "s#^([[:space:]]*image:[[:space:]]*authelia/authelia:)${pinned_ver//./\\.}([[:space:]]|\$)#\1${db_ver}\2#" "$compose"
+    if ! grep -qE "^[[:space:]]*image:[[:space:]]*authelia/authelia:${db_ver//./\\.}([[:space:]]|\$)" "$compose"; then
+        log_error "Authelia $pinned_ver cannot open $auth_dir/db.sqlite (last migrated by v$db_ver) and the pin in $compose could not be raised: Authelia will not start"
+        return 1
+    fi
+    log_warn "Authelia $pinned_ver cannot open $auth_dir/db.sqlite (last migrated by v$db_ver). Raised the pin in $compose to $db_ver; the template pin needs to be at least that."
+}
+
+# Wait until every container of the compose project in the current directory is
+# running and has stayed up for <stable> seconds.
+#
+# `docker compose up -d` exits 0 once the containers are CREATED. A service that
+# dies on start under `restart: unless-stopped` just loops, and nothing else looks:
+# on 2026-09-10 an update printed "Self-check complete: 18/18 OK" and
+# "Installation complete" while authelia and dex were both crash-looping and the
+# box had no working login.
+#
+# A crash loop never reaches <stable> — it is back in `restarting` within a second
+# of each start — while a one-off restart during boot (Dex starting before
+# Authelia answers) recovers well inside <timeout>. Every service in this stack is
+# long-running; a one-shot service added later would need excluding here.
+#
+# On failure prints each unsettled container with its last error lines, returns 1.
+#
+# Usage: wait_stack_settled [timeout-seconds] [stable-seconds]
+wait_stack_settled() {
+    local timeout="${1:-90}" stable="${2:-15}"
+    local ids id deadline now line name status started uptime entry
+    local -a unsettled=()
+
+    ids="$(docker compose ps -a -q)"
+    [ -n "$ids" ] || return 0
+    deadline=$(( $(date +%s) + timeout ))
+
+    while :; do
+        now="$(date +%s)"
+        unsettled=()
+        for id in $ids; do
+            line="$(docker inspect -f '{{.Name}} {{.State.Status}} {{.State.StartedAt}}' "$id" 2>/dev/null || true)"
+            read -r name status started <<<"$line"
+            name="${name#/}"
+            if [ "${status:-}" != "running" ]; then
+                unsettled+=("${name:-$id}:${status:-gone}")
+                continue
+            fi
+            # An unparseable timestamp counts as settled rather than failing a healthy stack.
+            uptime=$(( now - $(date -d "$started" +%s 2>/dev/null || echo 0) ))
+            [ "$uptime" -ge "$stable" ] || unsettled+=("$name:up ${uptime}s")
+        done
+        [ "${#unsettled[@]}" -eq 0 ] && return 0
+        [ "$now" -lt "$deadline" ] || break
+        sleep 3
+    done
+
+    echo "ERROR: containers not running stably ${timeout}s after 'up' (each needs ${stable}s of uptime): ${unsettled[*]}"
+    for entry in "${unsettled[@]}"; do
+        name="${entry%%:*}"
+        echo "  --- $name, last errors:"
+        docker logs --tail 40 "$name" 2>&1 \
+            | grep -iE 'error|fatal|panic|failed' | tail -n 3 | cut -c1-300 | sed 's/^/  /' || true
+    done
+    return 1
+}
