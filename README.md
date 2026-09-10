@@ -273,12 +273,18 @@ it entirely — the stack works but stays manual-update.
 
 Auto-update is optional (`MESH_AUTO_UPDATE=false`), and on Windows there is no self-check at
 all. On those boxes re-running the installer is the only thing that ever lands a new template
-— so it is designed to be run with **no arguments**:
+— so both installers are designed to be run with **no arguments**:
 
 ```bash
-sudo bash /DATA/AppData/mesh/template/install.sh
+# Linux — as root; the installer does not call sudo itself
+bash /DATA/AppData/mesh/template/install.sh
 # or, to also pick up a newer installer itself:
-curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh | sudo -E bash
+curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh | bash
+```
+
+```powershell
+# Windows / PowerShell
+irm https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.ps1 | iex
 ```
 
 Everything the installer needs is already in `.env`, so nothing has to be re-typed: the
@@ -310,11 +316,20 @@ knowing:
   one keypress.
 - **Pass `--domain` / `--provider` to change identity.** That is a deliberate change and
   skips the confirmation.
-- **Non-interactive runs proceed without asking** (`--yes`, or no usable terminal — cron,
-  CI, a `curl | bash` under systemd). The configuration came off the box's own disk, so
-  there is nothing to confirm against.
-- A first install still requires `--provider` and `--domain`; with neither those flags nor
-  an existing `.env`, the installer says so instead of reporting a missing flag.
+- **Non-interactive runs proceed without asking** (`--yes` / `-Yes`, or no usable terminal —
+  cron, CI, a `curl | bash` under systemd). The configuration came off the box's own disk,
+  so there is nothing to confirm against.
+- **`--windows` is sticky.** It is recorded as `MESH_WINDOWS_MODE` in `.env`, so an
+  argument-less re-run of `install.sh` on WSL keeps taking the Windows path instead of
+  falling through to the Linux one and trying to set up cron, logrotate and apt.
+- A first install still requires `--provider` and `--domain` (`-Provider` / `-Domain` on
+  Windows); with neither those flags nor an existing `.env`, the installer says so instead
+  of reporting a missing flag.
+- **`install.ps1` behaves the same way** — same ladder, same confirmation, same redaction.
+  Its one difference: it downloads from a jsDelivr channel base rather than a tarball URL,
+  so if `.env` holds an `UPDATE_URL` that names no branch (a fork, tag or mirror) it warns,
+  fetches from `stable`, and leaves the recorded URL untouched rather than repointing the
+  box.
 
 ### Layout
 

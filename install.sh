@@ -194,6 +194,25 @@ env_get() {
   grep -E "^${key}=" "$ENV_SRC" | head -n1 | cut -d= -f2- || true
 }
 
+ENV_FILE="$APP_DIR/.env"
+env_set() {
+  # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
+  # is what keeps DEFAULT_PWD (and anything ensure-env-valid backfilled)
+  # intact when the installer is re-run to update — regenerating the platform
+  # secret would invalidate every app's DB password and admin token.
+  local key="$1" value="$2" tmp
+  tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
+  if [[ -f "$ENV_FILE" ]]; then
+    grep -v -E "^${key}=" "$ENV_FILE" > "$tmp" || true
+  fi
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  chmod 600 "$tmp"
+  # Own the .env by PUID:PGID so CasaOS (uid 1000) can read it and group the
+  # stack in its dashboard instead of showing it as individual "External Apps".
+  chown "${PUID}:${PGID}" "$tmp" 2>/dev/null || true
+  mv "$tmp" "$ENV_FILE"
+}
+
 # Prompt on the CONTROLLING TERMINAL, not stdin.
 #
 # The documented install path is `curl -fsSL ... | bash -s -- ...`, where stdin
@@ -568,24 +587,24 @@ if [[ "$WINDOWS_MODE" == true ]]; then
     DEFAULT_PWD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
   fi
 
-  cat > "$APP_DIR/.env" <<EOF
-PROVIDER_STR=${PROVIDER_STR}
-DOMAIN=${DOMAIN}
-PUBLIC_IP=${PUBLIC_IP}
-PUBLIC_IP_DASH=${PUBLIC_IP_DASH}
-DATA_ROOT=${DATA_ROOT}
-DEFAULT_PWD=${DEFAULT_PWD}
-EMAIL=${EMAIL}
-DEFAULT_SERVICE_HOST=maison
-DEFAULT_SERVICE_PORT=80
-PUID=${PUID}
-PGID=${PGID}
-MESH_AUTO_UPDATE=false
-MESH_WINDOWS_MODE=true
-UPDATE_URL=${TARBALL_URL}
-EOF
-  chmod 600 "$APP_DIR/.env"
-  chown "${PUID}:${PGID}" "$APP_DIR/.env" 2>/dev/null || true
+  # Upsert rather than rewrite: same reason as the Linux path below. A Windows
+  # box is re-run to update just like a Linux one, and a wholesale rewrite would
+  # drop every key this installer does not name — anything added by hand
+  # included.
+  env_set PROVIDER_STR "$PROVIDER_STR"
+  env_set DOMAIN "$DOMAIN"
+  env_set PUBLIC_IP "$PUBLIC_IP"
+  env_set PUBLIC_IP_DASH "$PUBLIC_IP_DASH"
+  env_set DATA_ROOT "$DATA_ROOT"
+  env_set DEFAULT_PWD "$DEFAULT_PWD"
+  env_set EMAIL "$EMAIL"
+  env_set DEFAULT_SERVICE_HOST "maison"
+  env_set DEFAULT_SERVICE_PORT "80"
+  env_set PUID "$PUID"
+  env_set PGID "$PGID"
+  env_set MESH_AUTO_UPDATE "false"
+  env_set MESH_WINDOWS_MODE "true"
+  env_set UPDATE_URL "$TARBALL_URL"
   echo "[OK] .env written"
 
   # No self-check on this path, so nothing else will place the base Caddyfile
@@ -643,24 +662,6 @@ if [[ ! -L "$LEGACY_APP_DIR" && -f "$LEGACY_APP_DIR/.env" && ! -f "$APP_DIR/.env
 fi
 
 echo "[..] Writing .env (preserving existing keys on re-run)..."
-ENV_FILE="$APP_DIR/.env"
-env_set() {
-  # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
-  # is what keeps DEFAULT_PWD (and anything ensure-env-valid backfilled)
-  # intact when the installer is re-run to update — regenerating the platform
-  # secret would invalidate every app's DB password and admin token.
-  local key="$1" value="$2" tmp
-  tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
-  if [[ -f "$ENV_FILE" ]]; then
-    grep -v -E "^${key}=" "$ENV_FILE" > "$tmp" || true
-  fi
-  printf '%s=%s\n' "$key" "$value" >> "$tmp"
-  chmod 600 "$tmp"
-  # Own the .env by PUID:PGID so CasaOS (uid 1000) can read it and group the
-  # stack in its dashboard instead of showing it as individual "External Apps".
-  chown "${PUID}:${PGID}" "$tmp" 2>/dev/null || true
-  mv "$tmp" "$ENV_FILE"
-}
 env_set PROVIDER_STR "$PROVIDER_STR"
 env_set DOMAIN "$DOMAIN"
 env_set DATA_ROOT "$DATA_ROOT"
