@@ -9,10 +9,21 @@ trap 'echo "[FAIL] install.sh line $LINENO exited $?" >&2' ERR
 # Docker, backfills .env defaults, syncs the template, pulls images, brings the
 # stack up, and verifies routing — shown live as a per-step checklist (--display).
 #
-# Usage:
+# Usage (first install):
 #   curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh \
 #     | sudo -E bash -s -- --provider "https://nsl.sh/router/api,userid,signature" \
 #       --domain alice.nsl.sh [--email you@example.com]
+#
+# Usage (update an existing box):
+#   sudo bash install.sh
+#
+# Re-running with NO arguments is the supported manual update path. Every value
+# the installer needs is already in the .env on disk, so it is read back rather
+# than re-typed: the run prints the configuration it found, asks for one
+# confirmation, and proceeds. This is how a box with MESH_AUTO_UPDATE=false —
+# where the nightly self-check never syncs the template — gets a new template at
+# all. Passing --provider/--domain on top is a deliberate identity change and
+# still goes straight through.
 #
 # Installs track the 'stable' branch by default. Add --channel main to follow the
 # development branch, or --update-url for an arbitrary tarball. Either way the
@@ -31,9 +42,15 @@ DOMAIN=""
 EMAIL_ARG=""
 PUBLIC_IP=""
 DATA_ROOT="/DATA"
+DATA_ROOT_ARG=""   # set only when --data-root was passed, so the value already in
+                   # .env survives an argument-less update
 LOCAL_COMPOSE=""
 WINDOWS_MODE=false
 CHANNEL="stable"   # convenience: resolved to a branch URL unless --update-url is given
+CHANNEL_ARG=""     # set only when --channel was actually passed. Without this
+                   # sentinel a no-argument update could not tell "the user asked
+                   # for stable" from "the user asked for nothing" and would
+                   # silently drag a --channel main box back to stable.
 UPDATE_URL_ARG=""  # explicit full tarball URL; wins over --channel
 PUID="1000"
 PGID="1000"
@@ -49,9 +66,15 @@ usage() {
 Mesh Router Installer
 
 Usage:
-  install.sh --provider <provider-string> --domain <domain> [options]
+  install.sh --provider <provider-string> --domain <domain> [options]   # install
+  install.sh [options]                                                  # update
 
-Required:
+Run with no arguments on a server that already has Mesh Router installed to
+update it in place: the provider string, domain and update source are read
+back from the existing .env, so nothing has to be re-typed. Use this when
+MESH_AUTO_UPDATE=false and the nightly self-check is not syncing the template.
+
+Required for a FIRST install only (a re-run reads both from .env):
   --provider    Provider connection string (backend_url,userid,signature)
   --domain      Your domain (e.g. alice.nsl.sh)
 
@@ -59,6 +82,7 @@ Options:
   --email       Account email exposed to installed apps (default: admin@<domain>)
   --channel     Update branch: stable (default) or main (development branch).
                 Resolved to a full URL and persisted as UPDATE_URL in .env.
+                Omit it on a re-run to keep the channel the box already has.
   --update-url  Full template tarball URL (.tar.gz), for forks/tags/mirrors.
                 Overrides --channel. Persisted as UPDATE_URL.
   --public-ip   Server public IP (auto-detected by self-check if omitted)
@@ -97,10 +121,10 @@ while [[ $# -gt 0 ]]; do
     --provider)  need_value "$@"; PROVIDER_STR="$2"; shift 2 ;;
     --domain)    need_value "$@"; DOMAIN="$2"; shift 2 ;;
     --email)     need_value "$@"; EMAIL_ARG="$2"; shift 2 ;;
-    --channel)    need_value "$@"; CHANNEL="$2"; shift 2 ;;
+    --channel)    need_value "$@"; CHANNEL_ARG="$2"; shift 2 ;;
     --update-url) need_value "$@"; UPDATE_URL_ARG="$2"; shift 2 ;;
     --public-ip) need_value "$@"; PUBLIC_IP="$2"; shift 2 ;;
-    --data-root) need_value "$@"; DATA_ROOT="$2"; shift 2 ;;
+    --data-root) need_value "$@"; DATA_ROOT_ARG="$2"; shift 2 ;;
     --local)     need_value "$@"; LOCAL_COMPOSE="$2"; shift 2 ;;
     --windows)   WINDOWS_MODE=true; shift ;;
     --claim-user)     need_value "$@"; CLAIM_USER="$2"; shift 2 ;;
@@ -112,13 +136,147 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validate required params
-if [[ -z "$PROVIDER_STR" ]]; then
-  echo "Error: --provider is required"
-  usage
+# Everything below reads and writes under /DATA, and the discovery step needs to
+# read a root-owned .env, so the privilege check comes before it.
+if [[ $EUID -ne 0 ]]; then
+  echo "Error: this installer must run as root." >&2
+  echo "Try: curl -fsSL <url> | sudo -E bash -s -- --provider ... --domain ..." >&2
+  exit 1
 fi
-if [[ -z "$DOMAIN" ]]; then
-  echo "Error: --domain is required"
+
+echo "=== Mesh Router Installer ==="
+echo ""
+
+# Windows/WSL mode, part 1: the symlink only.
+# On Windows/WSL, host paths use /c/DATA but containers see /DATA. We keep APP_DIR
+# at /DATA/... so docker compose labels match, and symlink /DATA -> /c/DATA so files
+# land on the Windows filesystem. Creating it has to happen BEFORE config discovery
+# below, because $APP_DIR/.env is only reachable through it — which is also why
+# this half is driven by the FLAG alone: on a first Windows install there is no
+# .env to consult yet, and on a re-run the symlink is already there.
+if [[ "$WINDOWS_MODE" == true ]]; then
+  mkdir -p /c/DATA
+  if [[ ! -e /DATA ]]; then
+    ln -sf /c/DATA /DATA
+    echo "[OK] Symlinked /DATA -> /c/DATA"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Discover an existing installation.
+#
+# The .env on disk is the record of how this box was installed, and re-reading it
+# is what makes `install.sh` with no arguments a working UPDATE. Reading happens
+# here, before the legacy .env is MOVED into place further down (that move needs
+# APP_DIR to exist and belongs with the rest of the on-disk layout work), so both
+# locations are probed. Mirrors the APP_DIR fallback in scripts/library/common.sh.
+# ---------------------------------------------------------------------------
+LEGACY_APP_DIR="/DATA/AppData/casaos/apps/mesh"
+ENV_SRC=""
+if [[ -f "$APP_DIR/.env" ]]; then
+  ENV_SRC="$APP_DIR/.env"
+elif [[ ! -L "$LEGACY_APP_DIR" && -f "$LEGACY_APP_DIR/.env" ]]; then
+  ENV_SRC="$LEGACY_APP_DIR/.env"
+fi
+
+# Read a key out of the existing .env, if there is one. This is the middle rung
+# of the precedence ladder every input follows:
+#
+#     explicit flag  >  value already in .env  >  interactive prompt  >  default
+#
+# The practical effect is that a RE-RUN TO UPDATE asks for nothing beyond one
+# confirmation: every value is already on disk, so each prompt is skipped for the
+# same reason a flag would skip it. There is no separate "am I updating?" branch
+# anywhere in this script — only the confirmation below knows the difference.
+env_get() {
+  local key="$1"
+  [[ -n "$ENV_SRC" ]] || { echo ""; return 0; }
+  grep -E "^${key}=" "$ENV_SRC" | head -n1 | cut -d= -f2- || true
+}
+
+# Prompt on the CONTROLLING TERMINAL, not stdin.
+#
+# The documented install path is `curl -fsSL ... | bash -s -- ...`, where stdin
+# is the SCRIPT ITSELF — so `read` without a redirect would eat the script's own
+# remaining bytes, and `[ -t 0 ]` is false even when the user is sitting at a
+# terminal. Reading from /dev/tty is what makes a prompt work in a pipe at all.
+# Same idiom as uninstall.sh's confirmation.
+#
+# Returns 1 when there is no terminal, so callers can fall back rather than hang.
+#
+# `-r /dev/tty` is not enough: inside a container or under a systemd unit the
+# device node exists and tests readable, but opening it fails with ENXIO. The
+# probe below actually opens it, so a non-interactive run falls back silently
+# instead of spraying "/dev/tty: No such device or address" for every prompt.
+have_tty() {
+  [[ "$ASSUME_YES" != true ]] || return 1
+  { : < /dev/tty; } 2>/dev/null
+}
+
+prompt_line() {
+  local prompt="$1" __var="$2" reply=""
+  have_tty || return 1
+  printf '%s' "$prompt" > /dev/tty
+  read -r reply < /dev/tty || return 1
+  printf -v "$__var" '%s' "$reply"
+}
+
+prompt_secret() {
+  local prompt="$1" __var="$2" reply=""
+  have_tty || return 1
+  printf '%s' "$prompt" > /dev/tty
+  # No echo, and restore the terminal even if the read is interrupted.
+  stty -echo < /dev/tty 2>/dev/null || true
+  read -r reply < /dev/tty || { stty echo < /dev/tty 2>/dev/null || true; return 1; }
+  stty echo < /dev/tty 2>/dev/null || true
+  printf '\n' > /dev/tty
+  printf -v "$__var" '%s' "$reply"
+}
+
+# Snapshot what the command line actually supplied, before the ladder fills the
+# gaps in. Only an argument-less run is treated as "update this box, please
+# confirm"; naming an identity is a deliberate change and goes straight through.
+PROVIDER_ARG="$PROVIDER_STR"
+DOMAIN_ARG="$DOMAIN"
+
+# Apply the ladder: explicit flag > value already in .env > default.
+[[ -n "$PROVIDER_STR" ]] || PROVIDER_STR="$(env_get PROVIDER_STR)"
+[[ -n "$DOMAIN"       ]] || DOMAIN="$(env_get DOMAIN)"
+DATA_ROOT="${DATA_ROOT_ARG:-$(env_get DATA_ROOT)}"
+[[ -n "$DATA_ROOT" ]] || DATA_ROOT="/DATA"
+
+# Windows/WSL mode, part 2: --windows is STICKY.
+# It is recorded in .env, because an argument-less update carries no flags — and a
+# Windows box that fell through to the Linux path would run the self-check and try
+# to set up cron, logrotate and apt, none of which work there. The flag still wins
+# for a first install; after that the box remembers.
+if [[ "$WINDOWS_MODE" == true || "$(env_get MESH_WINDOWS_MODE)" == "true" ]]; then
+  WINDOWS_MODE=true
+  echo "[!!] Windows mode enabled"
+  PUID="0"
+  PGID="0"
+  DATA_ROOT="/c/DATA"   # pinned regardless of what any earlier install recorded
+fi
+
+MESH_ROOT="$DATA_ROOT/AppData/mesh"
+SCRIPTS_DIR="$MESH_ROOT/scripts"
+TEMPLATE_DIR="$MESH_ROOT/template"
+
+# Validate that we ended up with an identity, from either source.
+if [[ -z "$PROVIDER_STR" || -z "$DOMAIN" ]]; then
+  if [[ -n "$ENV_SRC" ]]; then
+    _missing=""
+    [[ -z "$PROVIDER_STR" ]] && _missing="PROVIDER_STR"
+    [[ -z "$DOMAIN" ]] && _missing="${_missing:+$_missing and }DOMAIN"
+    echo "Error: $ENV_SRC exists but has no $_missing." >&2
+    echo "       An update reads the identity back from that file; since it is not" >&2
+    echo "       there, pass the missing value(s) explicitly this once." >&2
+  else
+    echo "Error: no existing installation found at $APP_DIR." >&2
+    echo "       A first install needs --provider and --domain. Only a re-run over" >&2
+    echo "       an existing install can read them back from disk." >&2
+  fi
+  echo "" >&2
   usage
 fi
 
@@ -135,6 +293,18 @@ die_bad_arg() {
   echo "       Got: ${value}" >&2
   local line
   for line in "$@"; do echo "       ${line}" >&2; done
+  # Say where the bad value came from. On an argument-less update it was read
+  # back from .env, and telling the user to fix "--provider" sends them looking
+  # for a flag they never typed.
+  local from_env=""
+  case "$name" in
+    provider) [[ -z "${PROVIDER_ARG:-}" ]] && from_env="$ENV_SRC" ;;
+    domain)   [[ -z "${DOMAIN_ARG:-}"   ]] && from_env="$ENV_SRC" ;;
+  esac
+  if [[ -n "$from_env" ]]; then
+    echo "       Source: ${from_env} — this run read it back from that file rather" >&2
+    echo "               than from a flag. Fix it there, or pass --${name} once." >&2
+  fi
   if [[ "$value" == *'<'* || "$value" == *'>'* ]]; then
     echo "       Hint: '<' or '>' means you pasted a literal placeholder (e.g." >&2
     echo "             \"<SIGNATURE>\") instead of the generated value. Make sure" >&2
@@ -190,20 +360,34 @@ fi
 
 # CHANNEL is persisted to .env and interpolated into a GitHub branch URL, so
 # restrict it to a plain git ref name (letters, digits, ., _, /, -).
+[[ -n "$CHANNEL_ARG" ]] && CHANNEL="$CHANNEL_ARG"
 if [[ ! "$CHANNEL" =~ ^[A-Za-z0-9._/-]+$ ]]; then
   die_bad_arg channel "$CHANNEL" \
     "Expected a branch name like stable or main."
 fi
 
-# Resolve the template tarball source. Precedence mirrors common.sh's
-# mesh_template_url() — keep the two in sync; this bootstrap cannot source the
-# library because it is not on disk yet.
-#   --update-url > UPDATE_URL from the env > MESH_TEMPLATE_URL (deprecated) > --channel
-# The resolved value is what gets written to .env as UPDATE_URL further down, so
-# the box keeps updating from whatever this install chose.
+# Resolve the template tarball source.
+#
+#   --update-url > --channel (only when actually passed) > UPDATE_URL /
+#   MESH_TEMPLATE_URL from the ENVIRONMENT > UPDATE_URL / MESH_TEMPLATE_URL from
+#   the box's .env > the default channel
+#
+# The .env rung is what keeps an argument-less update on the source this box was
+# installed from. Without it a re-run fell through to the ${CHANNEL} default and
+# silently dragged a `--channel main` box back to stable — and then persisted
+# that downgrade, because the resolved value is written to .env below.
+#
+# Environment variables still outrank the file: `UPDATE_URL=file:///... bash
+# install.sh` is the documented way to test a local template tree on a real box,
+# and that has to win over whatever the box already recorded. This is the one
+# deliberate divergence from common.sh's mesh_template_url(), which sees .env
+# already sourced into its environment and so cannot tell the two rungs apart.
 TARBALL_URL="$UPDATE_URL_ARG"
+[[ -z "$TARBALL_URL" && -n "$CHANNEL_ARG" ]] && TARBALL_URL="https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL_ARG}.tar.gz"
 [[ -z "$TARBALL_URL" ]] && TARBALL_URL="${UPDATE_URL:-}"
 [[ -z "$TARBALL_URL" ]] && TARBALL_URL="${MESH_TEMPLATE_URL:-}"
+[[ -z "$TARBALL_URL" ]] && TARBALL_URL="$(env_get UPDATE_URL)"
+[[ -z "$TARBALL_URL" ]] && TARBALL_URL="$(env_get MESH_TEMPLATE_URL)"
 [[ -z "$TARBALL_URL" ]] && TARBALL_URL="https://github.com/yundera/mesh-router-template-root/archive/refs/heads/${CHANNEL}.tar.gz"
 
 if [[ "$TARBALL_URL" == *.zip ]]; then
@@ -211,34 +395,61 @@ if [[ "$TARBALL_URL" == *.zip ]]; then
     "This template is distributed as .tar.gz and extracts with tar. Use the .tar.gz form."
 fi
 
-if [[ $EUID -ne 0 ]]; then
-  echo "Error: this installer must run as root." >&2
-  echo "Try: curl -fsSL <url> | sudo -E bash -s -- --provider ... --domain ..." >&2
-  exit 1
-fi
+# ---------------------------------------------------------------------------
+# Confirm an argument-less update.
+#
+# Show what was found and get one keypress before touching anything. Deliberately
+# NOT a two-way "reuse this / start fresh" choice: starting fresh would mean
+# discarding DEFAULT_PWD, AUTHELIA_DEX_SECRET and DEX_SESSION_KEY — invalidating
+# every installed app's database password and admin token — which is not
+# something anyone should reach by picking the second menu item. Changing the
+# identity is `--domain` / `--provider`; starting over is uninstall.sh first.
+# ---------------------------------------------------------------------------
 
-echo "=== Mesh Router Installer ==="
-echo ""
-
-# 1. Windows/WSL mode
-# On Windows/WSL, host paths use /c/DATA but containers see /DATA. We keep APP_DIR
-# at /DATA/... so docker compose labels match, and symlink /DATA -> /c/DATA so files
-# land on the Windows filesystem.
-if [[ "$WINDOWS_MODE" == true ]]; then
-  echo "[!!] Windows mode enabled"
-  DATA_ROOT="/c/DATA"
-  PUID="0"
-  PGID="0"
-  mkdir -p "$DATA_ROOT"
-  if [[ ! -e /DATA ]]; then
-    ln -sf /c/DATA /DATA
-    echo "[OK] Symlinked /DATA -> /c/DATA"
+# The third field of the provider string is a credential. Never print it.
+redact_provider() {
+  local url="" uid="" sig=""
+  IFS=',' read -r url uid sig <<<"$1"
+  if [[ -n "$sig" ]]; then
+    printf '%s,%s,%s…(hidden)' "$url" "$uid" "${sig:0:4}"
+  else
+    printf '%s' "$1"
   fi
-fi
+}
 
-MESH_ROOT="$DATA_ROOT/AppData/mesh"
-SCRIPTS_DIR="$MESH_ROOT/scripts"
-TEMPLATE_DIR="$MESH_ROOT/template"
+if [[ -n "$ENV_SRC" && -z "$PROVIDER_ARG" && -z "$DOMAIN_ARG" ]]; then
+  _auto="$(env_get MESH_AUTO_UPDATE)"; [[ -n "$_auto" ]] || _auto="true"
+  _email="$(env_get EMAIL)"
+  _login="$(env_get LOCAL_ADMIN_USER)"
+  echo "Found an existing installation at $(dirname "$ENV_SRC")"
+  echo ""
+  echo "  Domain:       ${DOMAIN}"
+  echo "  Provider:     $(redact_provider "$PROVIDER_STR")"
+  [[ -n "$_email" ]] && echo "  Email:        ${_email}"
+  echo "  Data root:    ${DATA_ROOT}"
+  echo "  Update from:  ${TARBALL_URL}"
+  echo "  Auto-update:  $([[ "$_auto" == "false" ]] && echo "disabled" || echo "enabled")"
+  echo "  Claimed:      $([[ -n "$_login" ]] && echo "yes (${_login})" || echo "unknown — see ${SCRIPTS_DIR}/tools/authelia-user-manager.sh list")"
+  echo ""
+  if have_tty; then
+    _reply=""
+    prompt_line "Update this installation? [Y/n] " _reply || _reply=""
+    case "$_reply" in
+      ""|y|Y|yes|YES|Yes) ;;
+      *)
+        echo ""
+        echo "Aborted. Nothing was changed."
+        echo ""
+        echo "  To change the domain or provider, re-run with --domain / --provider."
+        echo "  To start over from scratch (this DELETES .env and every platform"
+        echo "  secret in it, so installed apps lose their credentials):"
+        echo "      sudo bash ${TEMPLATE_DIR}/uninstall.sh"
+        exit 0 ;;
+    esac
+  fi
+  echo "[..] Updating existing installation..."
+  unset _auto _email _login _reply
+fi
 
 # 2. Create directories
 # APP_DIR now holds everything for this stack; the rest of the tree
@@ -251,51 +462,6 @@ mkdir -p "$APP_DIR" "$DATA_ROOT" \
   "$MESH_ROOT/log" \
   "$SCRIPTS_DIR" "$TEMPLATE_DIR"
 echo "[OK] Layout under $MESH_ROOT"
-
-# Read a key out of the existing .env, if there is one. This is the middle rung
-# of the precedence ladder every input follows:
-#
-#     explicit flag  >  value already in .env  >  interactive prompt  >  default
-#
-# The practical effect is that a RE-RUN TO UPDATE asks nothing: every value is
-# already on disk, so each prompt is skipped for the same reason a flag would
-# skip it. There is no separate "am I updating?" branch anywhere in this script.
-env_get() {
-  local key="$1"
-  [[ -f "$APP_DIR/.env" ]] || { echo ""; return 0; }
-  grep -E "^${key}=" "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true
-}
-
-# Prompt on the CONTROLLING TERMINAL, not stdin.
-#
-# The documented install path is `curl -fsSL ... | bash -s -- ...`, where stdin
-# is the SCRIPT ITSELF — so `read` without a redirect would eat the script's own
-# remaining bytes, and `[ -t 0 ]` is false even when the user is sitting at a
-# terminal. Reading from /dev/tty is what makes a prompt work in a pipe at all.
-# Same idiom as uninstall.sh's confirmation.
-#
-# Returns 1 when there is no terminal, so callers can fall back rather than hang.
-have_tty() { [[ "$ASSUME_YES" != true && -r /dev/tty ]]; }
-
-prompt_line() {
-  local prompt="$1" __var="$2" reply=""
-  have_tty || return 1
-  printf '%s' "$prompt" > /dev/tty
-  read -r reply < /dev/tty || return 1
-  printf -v "$__var" '%s' "$reply"
-}
-
-prompt_secret() {
-  local prompt="$1" __var="$2" reply=""
-  have_tty || return 1
-  printf '%s' "$prompt" > /dev/tty
-  # No echo, and restore the terminal even if the read is interrupted.
-  stty -echo < /dev/tty 2>/dev/null || true
-  read -r reply < /dev/tty || { stty echo < /dev/tty 2>/dev/null || true; return 1; }
-  stty echo < /dev/tty 2>/dev/null || true
-  printf '\n' > /dev/tty
-  printf -v "$__var" '%s' "$reply"
-}
 
 # Auto-update toggle (nightly self-check re-syncs compose + scripts from main).
 # Preserve a user's opt-out across reruns; default off for --local dev installs
@@ -415,6 +581,7 @@ DEFAULT_SERVICE_PORT=80
 PUID=${PUID}
 PGID=${PGID}
 MESH_AUTO_UPDATE=false
+MESH_WINDOWS_MODE=true
 UPDATE_URL=${TARBALL_URL}
 EOF
   chmod 600 "$APP_DIR/.env"
@@ -440,7 +607,8 @@ EOF
   echo "  Domain:  https://${DOMAIN}"
   echo "  Install: ${APP_DIR}"
   echo ""
-  echo "Open https://${DOMAIN} to sign in to the Maison dashboard. Re-run to update."
+  echo "Open https://${DOMAIN} to sign in to the Maison dashboard."
+  echo "To update, re-run this installer with no arguments."
   exit 0
 fi
 
@@ -466,9 +634,11 @@ fi
 # run's values are overlaid on it. Mirrors the APP_DIR fallback in
 # scripts/library/common.sh — keep the two in sync. Moving the DIRECTORY (and
 # leaving the symlink behind) still belongs to the migration.
-LEGACY_APP_DIR="/DATA/AppData/casaos/apps/mesh"
+# LEGACY_APP_DIR is set in the discovery step above, which has already READ this
+# file; this is the move that makes it the live one.
 if [[ ! -L "$LEGACY_APP_DIR" && -f "$LEGACY_APP_DIR/.env" && ! -f "$APP_DIR/.env" ]]; then
   mv "$LEGACY_APP_DIR/.env" "$APP_DIR/.env"
+  ENV_SRC="$APP_DIR/.env"
   echo "[OK] Adopted existing .env from $LEGACY_APP_DIR"
 fi
 
@@ -652,7 +822,10 @@ if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
     echo "      (reads the password from stdin, or pass --generate)"
   fi
   echo ""
-  echo "To update, re-run this command (or wait for the nightly self-check)."
+  echo "To update later, re-run this installer with NO arguments — it reads this"
+  echo "box's configuration back from ${ENV_FILE}:"
+  echo ""
+  echo "  sudo bash ${TEMPLATE_DIR}/install.sh"
 else
   echo "=== Installation finished with self-check failures (exit ${SELF_CHECK_RC}) ==="
   echo "  Log:    ${MESH_ROOT}/log/mesh.log"

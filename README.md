@@ -208,6 +208,14 @@ updating from the source it was installed with instead of drifting onto another 
 Point it anywhere with `install.sh --update-url <tarball>` (forks, tags, mirrors), or edit
 `UPDATE_URL` directly afterwards.
 
+Re-running `install.sh` reads `UPDATE_URL` back too, so **omit `--channel` on a re-run**
+unless you actually want to switch channels — passing it is what moves a box between
+branches. The resolution order is `--update-url` → `--channel` (only when passed) →
+`UPDATE_URL`/`MESH_TEMPLATE_URL` in the environment → `UPDATE_URL`/`MESH_TEMPLATE_URL` in
+`.env` → the default channel. Environment variables outrank `.env` so that
+`UPDATE_URL=file:///... sudo -E bash install.sh` still works for testing a local template
+tree on a real box.
+
 `UPDATE_URL` is the same key name and shape `Yundera/template-root` uses, and the one
 `settings-center-app`'s update-channel panel reads and writes — that alignment is the point
 (see [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md)). One
@@ -260,6 +268,53 @@ idempotent `ensure-*.sh` scripts that install Docker, backfill `.env`, sync the 
 images, bring the stack up, and verify routing — shown live during install as a per-step
 checklist. The same self-check then runs nightly via cron. Windows (`--windows`) installs skip
 it entirely — the stack works but stays manual-update.
+
+### Manual update (`install.sh` with no arguments)
+
+Auto-update is optional (`MESH_AUTO_UPDATE=false`), and on Windows there is no self-check at
+all. On those boxes re-running the installer is the only thing that ever lands a new template
+— so it is designed to be run with **no arguments**:
+
+```bash
+sudo bash /DATA/AppData/mesh/template/install.sh
+# or, to also pick up a newer installer itself:
+curl -fsSL https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@stable/install.sh | sudo -E bash
+```
+
+Everything the installer needs is already in `.env`, so nothing has to be re-typed: the
+provider string, domain, data root and update source are read back from disk, printed as a
+summary (the provider signature redacted), and applied after one confirmation.
+
+```
+Found an existing installation at /DATA/AppData/mesh
+
+  Domain:       alice.nsl.sh
+  Provider:     https://nsl.sh/router/api,alice-uid,4kQ7…(hidden)
+  Data root:    /DATA
+  Update from:  https://github.com/yundera/mesh-router-template-root/archive/refs/heads/stable.tar.gz
+  Auto-update:  disabled
+  Claimed:      yes (alice)
+
+Update this installation? [Y/n]
+```
+
+The update is not a special mode — it is the same script following its normal precedence
+ladder, `explicit flag > value already in .env > prompt > default`. Consequences worth
+knowing:
+
+- **`.env` is preserved key by key.** `DEFAULT_PWD`, `AUTHELIA_DEX_SECRET` and
+  `DEX_SESSION_KEY` survive; regenerating them would invalidate every installed app's
+  database password and admin token. There is deliberately no "reinstall from scratch"
+  option in the prompt — to genuinely start over, run `uninstall.sh` first.
+- **An already-claimed box is not asked about its owner account**, so the whole update is
+  one keypress.
+- **Pass `--domain` / `--provider` to change identity.** That is a deliberate change and
+  skips the confirmation.
+- **Non-interactive runs proceed without asking** (`--yes`, or no usable terminal — cron,
+  CI, a `curl | bash` under systemd). The configuration came off the box's own disk, so
+  there is nothing to confirm against.
+- A first install still requires `--provider` and `--domain`; with neither those flags nor
+  an existing `.env`, the installer says so instead of reporting a missing flag.
 
 ### Layout
 
@@ -319,7 +374,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token. **Not the login password** — see "Claiming the login" |
 | `LOCAL_ADMIN_USER` | _(set at claim)_ | The owner's chosen username. Written by `authelia-user-manager.sh claim`; `ensure-authelia.sh` reads it to keep the right account's email in step with `EMAIL` |
 | `DEX_SESSION_KEY` | _(generated)_ | AES key encrypting Dex's session cookie. Rotating it costs one round of re-logins |
-| `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs |
+| `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs. Update such a box by re-running `install.sh` with no arguments (see [Manual update](#manual-update-installsh-with-no-arguments)) |
 | `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
 | `MESH_UPDATE_CHANNEL` / `MESH_TEMPLATE_URL` | _(unset)_ | **Deprecated** pre-rename keys, still read as fallbacks for one release. Migrated to `UPDATE_URL` automatically |
