@@ -278,3 +278,43 @@ wait_stack_settled() {
     done
     return 1
 }
+
+# Remove any container that holds a `container_name` this compose project claims
+# but belongs to a DIFFERENT project (or to none).
+#
+# Container names are host-wide, and `up --remove-orphans` only sweeps orphans of
+# its own project, so a squatter from another project makes `up` abort on
+# "Conflict. The container name ... is already in use" — and compose aborts the
+# WHOLE up, not just that service. On 2026-09-29 watch.nsl.sh went fully dark this
+# way: mesh-console moved from its own `mesh-console` stack into the mesh stack
+# (21721e8), the old stack still held the names, and install.sh had already taken
+# the mesh stack down for its clean restart.
+#
+# The template is authoritative for the names it declares, so the squatter goes.
+# Only the container is removed — its volumes and bind mounts are left alone, and
+# its compose project (if any) can be brought back by hand. Loud on purpose: every
+# eviction is a template/fleet drift worth knowing about.
+#
+# Reads the project name and names from `docker compose config` (normalised YAML:
+# `name:` at the top, `container_name:` per service), so it needs no yq.
+#
+# Usage: evict_name_squatters [docker compose global args...]
+#   e.g. evict_name_squatters                                  (compose in $PWD)
+#        evict_name_squatters --project-directory DIR -f FILE
+evict_name_squatters() {
+    local config project name owner rc=0
+    config="$(docker compose "$@" config 2>/dev/null)" || return 0
+    project="$(sed -n 's/^name: *//p' <<<"$config" | head -n 1)"
+    [ -n "$project" ] || return 0
+
+    while read -r name; do
+        [ -n "$name" ] || continue
+        # `container inspect`, not `inspect`: never match an image or volume by name.
+        owner="$(docker container inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$name" 2>/dev/null)" || continue
+        [ "$owner" = "$project" ] && continue
+        echo "WARN: container '$name' is declared by the '$project' stack but belongs to '${owner:-no compose project}' - removing it so '$project' can start"
+        docker rm -f "$name" >/dev/null || rc=1
+    done < <(sed -n 's/^ *container_name: *//p' <<<"$config" | tr -d "\"'")
+
+    return "$rc"
+}

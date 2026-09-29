@@ -160,6 +160,10 @@ pull_once() { COMPOSE_PARALLEL_LIMIT=1 compose pull; }
 up_once()   { compose up --quiet-pull --remove-orphans -d; }
 
 run_with_backoff "pull" pull_once
+# Retrying cannot clear a name held by another project's container; evicting it
+# can (see evict_name_squatters in library/common.sh).
+evict_name_squatters --project-directory "$DEST_DIR" -f "$DEST_COMPOSE" \
+    || log_warn "[$STACK_NAME] could not remove a container squatting one of this stack's names"
 run_with_backoff "up" up_once
 
 echo "[$STACK_NAME] stack is up ($DEST_DIR)"
