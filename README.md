@@ -93,6 +93,29 @@ part of the mesh stack — it attaches to the `pcs` network the mesh stack owns.
   `/DATA/AppData/casaos/apps/<app>`. `ensure-maison-app-mirror.sh` projects them into
   Maison's layout so they are manageable rather than merely visible.
 
+### mesh-console (status & control page)
+
+The box's own status page ([Yundera/mesh-console](https://github.com/Yundera/mesh-console)):
+public IP and domain, how the gateways route to the box (**direct** / **tunnel** /
+**offline**, with the registered routes, tunnel handshake age, mesh certificate expiry
+and a root-domain probe), whether the template is up to date with an **Update now**
+button that runs the self-check, and the root-domain default application. Deployed as its
+own stack to `${DATA_ROOT}/AppData/mesh-console` by
+`scripts/self-check/ensure-mesh-console-stack.sh`.
+
+- Reachable at `mesh-console-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants).
+- **Admins only**, checked twice: its AppShield gate refuses accounts outside `admins`
+  (`OIDC_REQUIRED_GROUPS`), and the app verifies the gate's signed identity assertion
+  (`MESH_CONSOLE_ASSERTION_SECRET`, minted into the mesh `.env` on first run).
+- It holds the Docker socket and reads the mesh root **read-only**. Its two host
+  actions — run the self-check, set `DEFAULT_SERVICE_HOST`/`PORT` and recreate the mesh
+  stack — run as a one-shot privileged `mesh-console-runner` container in the host's
+  namespaces. There is no generic command path.
+- The Update page compares `template/.revision.json` (written by
+  `ensure-template-sync.sh` after each sync: `{url, commit, synced_at}`) with the head of
+  the `UPDATE_URL` branch on GitHub.
+- Not deployed on Windows installs (no self-check there).
+
 ### dex / authelia / auth-registrar (SSO)
 
 Single sign-on for apps installed on the PCS. Apps delegate login via OIDC instead of
@@ -356,7 +379,8 @@ knowing:
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Authelia
    (`ensure-authelia.sh`: secrets, JWKS key, config, owner-account seed), mint the Dex
    session key, provision Dex SSO (`ensure-dex.sh`: render config, append connectors,
-   provision the login theme), `docker compose pull`, `up -d`
+   provision the login theme), `docker compose pull`, `up -d`, then the auxiliary stacks
+   (Maison, Mesh Console)
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
    end-to-end (`curl -H 'X-Mesh-Trace: 1' https://$DOMAIN/`)
 
@@ -389,6 +413,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token. **Not the login password** — see "Claiming the login" |
 | `LOCAL_ADMIN_USER` | _(set at claim)_ | The owner's chosen username. Written by `authelia-user-manager.sh claim`; `ensure-authelia.sh` reads it to keep the right account's email in step with `EMAIL` |
 | `DEX_SESSION_KEY` | _(generated)_ | AES key encrypting Dex's session cookie. Rotating it costs one round of re-logins |
+| `MESH_CONSOLE_ASSERTION_SECRET` | _(generated)_ | Shared by the mesh-console gate (signs the identity assertion) and app (verifies it). Deleting it re-mints it on the next self-check |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs. Update such a box by re-running `install.sh` with no arguments (see [Manual update](#manual-update-installsh-with-no-arguments)) |
 | `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |

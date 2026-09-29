@@ -48,7 +48,7 @@ services:
   # unrouted host and login dead-ends. The gate therefore takes the app's public
   # name; the backend gets the suffix.
   maison:
-    image: ghcr.io/yundera/appshield:3.0.0
+    image: ghcr.io/yundera/appshield:3.0.2
     container_name: maison
     hostname: maison
     restart: unless-stopped
@@ -76,6 +76,22 @@ services:
       LISTEN_PORT: "80"
       # Gate session lifetime: 30 days, matching Authelia's cookie settings.
       SESSION_DURATION_HOURS: "720"
+      # The PWA surface, and ONLY that. Everything else, Maison's own assets
+      # included, is fetched by a browser that already has a session.
+      #
+      # These two are the exception because the browser does NOT use the session for
+      # them. A web app manifest is fetched with credentials omitted unless the link
+      # tag says otherwise, and Chrome downloads the icons a manifest names through
+      # the browser process, where credentials are not reliably attached. Without a
+      # bypass those requests get this gate's 302 to the login page, the manifest
+      # resolves to HTML, and the app is silently not installable — with nothing in
+      # any log to say why. Maison's index.html also sets crossorigin="use-credentials"
+      # on the manifest link, so the two halves cover each other.
+      #
+      # What this exposes is the app's name and its icon, both of which the login page
+      # already shows. Bypassed requests still have every identity header stripped
+      # (AppShield router.go), so this cannot be used to forge a user.
+      ALLOWED_PATHS: "manifest.webmanifest,icons"
     volumes:
       # Gate state under /data: persisted login sessions (sessions.json, AppShield
       # >= 2.0.6) and the MCP OAuth provider state. Without this mount a container
@@ -101,7 +117,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.25
+    image: ghcr.io/yundera/maison:1.1.34
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -157,6 +173,48 @@ services:
       # protected because its own compose says so, via `x-compose-app.view:
       # system` (this file's block at the bottom, and the mesh stack's). See the
       # note there for what that withholds.
+
+      # --- Outbound mail --------------------------------------------------
+      # Maison mails an alert when a backup run's health CHANGES (one mail into
+      # failure, one on recovery), the backup repository's encryption key, and
+      # app install/uninstall notifications. See Maison's docs/backup.md
+      # "Notifications".
+      #
+      # THE HOST IS THE SWITCH. Maison has no default relay on purpose, so without
+      # this key nothing is ever sent. `smtp` is the mail-gateway container in the
+      # mesh stack, on this same `pcs` network. It advertises neither STARTTLS nor
+      # AUTH, so the security is stated rather than negotiated.
+      #
+      # CAVEAT, ACCEPTED DELIBERATELY: mail-gateway forwards over HTTPS to
+      # mesh-router-backend, which relays via SendGrid — so the backup key
+      # traverses the mesh operator's infrastructure in plaintext.
+      #
+      # FROM/TO are left unset: Maison falls back to noreply@${APP_DOMAIN} and to
+      # ${APP_EMAIL} from .env.app, which ensure-maison-stack.sh rewrites on every
+      # self-check. Set SMTP_TO in the mesh .env only to divert the mail somewhere
+      # other than the owner.
+      #
+      # VERSION-COUPLED: these keys exist from Maison 1.1.23. An older image
+      # ignores them and sends nothing.
+      SMTP_HOST: "smtp"
+      SMTP_PORT: "587"
+      SMTP_SECURITY: "none"
+      SMTP_TO: "${SMTP_TO:-}"
+
+      # Where the HOST's /proc is readable, for the Resources page.
+      #
+      # Most of /proc is NOT namespaced — /proc/stat, /proc/meminfo and
+      # /proc/diskstats already report the host from inside a container. This buys
+      # the three readings that ARE per-namespace or per-process:
+      #   - the host's network interface counters (Maison reads
+      #     /host/proc/1/net/dev to get host PID 1's namespace, not the pcs veth);
+      #   - the host's process table, for the top-processes list;
+      #   - the host's mount table, so the filesystem behind the /DATA bind is
+      #     named as what it actually is.
+      #
+      # Maison feature-detects this: without the mount the Resources page hides the
+      # network and process tables and says why.
+      HOST_PROC: "/host/proc"
     # Docker socket group — resolved from the host by ensure-maison-stack.sh.
     group_add:
       - "${DOCKER_GID}"
@@ -173,6 +231,13 @@ services:
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
+      # Read-only, and paired with HOST_PROC above. This exposes host command
+      # lines and /proc/1/environ to this container — not a new capability here:
+      # the docker socket mounted just above is already root-equivalent on the host.
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
 
 networks:
   # Created and owned by the `mesh` stack — this project only attaches to it.

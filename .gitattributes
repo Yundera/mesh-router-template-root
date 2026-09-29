@@ -1,0 +1,3 @@
+# Normalize line endings: LF in the repo, whatever the checkout wants locally.
+# Without this a Windows (CRLF) checkout shows every file as modified.
+* text=auto

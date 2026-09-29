@@ -103,6 +103,25 @@ fi
 mv "${TEMPLATE_DIR}.new" "$TEMPLATE_DIR"
 rm -rf "${TEMPLATE_DIR}.old"
 
+# Revision marker: which commit this box now runs, for mesh-console's Update page.
+# Nothing else records it — the tarball's top-level dir is <repo>-<branch>, not a
+# SHA. `git archive` (and so every GitHub branch tarball) writes the commit id
+# into the first pax header as `comment=<sha>`; a hand-made tarball has none,
+# and the marker then says so with "commit": null rather than guessing.
+# Written only after the swap succeeded, so it can never name a tree the box is
+# not on. Best effort: a marker failure must not fail the sync.
+TEMPLATE_COMMIT="$(gzip -dc "$TMP_DIR/template.tar.gz" 2>/dev/null | head -c 1536 \
+    | grep -a -o 'comment=[0-9a-f]\{40\}' | head -n1 | cut -d= -f2 || true)"
+if [ -n "$TEMPLATE_COMMIT" ]; then
+    COMMIT_JSON="\"$TEMPLATE_COMMIT\""
+else
+    COMMIT_JSON="null"
+fi
+printf '{"url":"%s","commit":%s,"synced_at":"%s"}\n' \
+    "$(printf '%s' "$TARBALL_URL" | tr -d '"\\')" "$COMMIT_JSON" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$TEMPLATE_DIR/.revision.json" || echo "WARN: could not write $TEMPLATE_DIR/.revision.json"
+echo "Template revision: ${TEMPLATE_COMMIT:-unknown}"
+
 # Propagate template-owned files to live locations.
 #
 # Caddyfile BEFORE docker-compose.yml, deliberately: the compose file is what
