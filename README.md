@@ -93,20 +93,21 @@ part of the mesh stack — it attaches to the `pcs` network the mesh stack owns.
   `/DATA/AppData/casaos/apps/<app>`. `ensure-maison-app-mirror.sh` projects them into
   Maison's layout so they are manageable rather than merely visible.
 
-### mesh-console (status & control page)
+### mesh-console (the stack's web UI)
 
-The box's own status page ([Yundera/mesh-console](https://github.com/Yundera/mesh-console)):
-public IP and domain, how the gateways route to the box (**direct** / **tunnel** /
-**offline**, with the registered routes, tunnel handshake age, mesh certificate expiry
-and a root-domain probe), whether the template is up to date with an **Update now**
-button that runs the self-check, and the root-domain default application. Deployed as its
-own stack to `${DATA_ROOT}/AppData/mesh-console` by
-`scripts/self-check/ensure-mesh-console-stack.sh`.
+The mesh stack's own web UI ([Yundera/mesh-console](https://github.com/Yundera/mesh-console)),
+and what the **Mesh Router** tile opens: public IP and domain, how the gateways route to
+the box (**direct** / **tunnel** / **offline**, with the registered routes, tunnel
+handshake age, mesh certificate expiry and a root-domain probe), whether the template is
+up to date with an **Update now** button that runs the self-check, and the root-domain
+default application. Two services of the mesh stack itself (`mesh-console`, the AppShield
+gate, and `mesh-console-app`) — not a stack of its own.
 
 - Reachable at `mesh-console-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants).
 - **Admins only**, checked twice: its AppShield gate refuses accounts outside `admins`
   (`OIDC_REQUIRED_GROUPS`), and the app verifies the gate's signed identity assertion
-  (`MESH_CONSOLE_ASSERTION_SECRET`, minted into the mesh `.env` on first run).
+  (`MESH_CONSOLE_ASSERTION_SECRET`, minted into the mesh `.env` by
+  `ensure-stack-up.sh` right before the stack comes up).
 - It holds the Docker socket and reads the mesh root **read-only**. Its two host
   actions — run the self-check, set `DEFAULT_SERVICE_HOST`/`PORT` and recreate the mesh
   stack — run as a one-shot privileged `mesh-console-runner` container in the host's
@@ -114,7 +115,6 @@ own stack to `${DATA_ROOT}/AppData/mesh-console` by
 - The Update page compares `template/.revision.json` (written by
   `ensure-template-sync.sh` after each sync: `{url, commit, synced_at}`) with the head of
   the `UPDATE_URL` branch on GitHub.
-- Not deployed on Windows installs (no self-check there).
 
 ### dex / authelia / auth-registrar (SSO)
 

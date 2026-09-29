@@ -45,13 +45,8 @@ ensure-maison-stack.sh
 # fresh install.
 ensure-maison-app-mirror.sh
 
-# Auxiliary stack — Mesh Console, the box's status/control page, behind its own
-# AppShield gate. After ensure-stack-up.sh for the same reason as Maison: it joins
-# `pcs`, and its gate needs auth-registrar / dex by name.
-ensure-mesh-console-stack.sh
-
 # The web Terminal - the AppStore's Terminal app shipped as a system app
-# (stacks/terminal/). Same constraint as the two above: its gate joins `pcs`.
+# (stacks/terminal/). Same constraint as Maison above: its gate joins `pcs`.
 # Opt out with TERMINAL_ENABLED=false in the mesh .env.
 ensure-terminal-stack.sh
 

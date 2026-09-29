@@ -206,10 +206,17 @@ ${JWKS_KEY}
         consent_mode: 'implicit'
         redirect_uris:
           - 'https://auth-${DOMAIN}/callback'
+        # 'groups' carries each user's users_database.yml groups through Dex to
+        # the apps. It is what an AppShield gate's OIDC_REQUIRED_GROUPS checks
+        # (mesh-console requires admins): without it the ID token has no
+        # groups claim and every such gate refuses every account. Served from
+        # userinfo, which Dex fetches (getUserInfo: true in ensure-dex.sh).
+        # Mirrors Yundera/template-root.
         scopes:
           - 'openid'
           - 'profile'
           - 'email'
+          - 'groups'
         userinfo_signed_response_alg: 'none'
         token_endpoint_auth_method: 'client_secret_basic'
 EOF

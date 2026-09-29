@@ -290,6 +290,11 @@ $envMap['MESH_WINDOWS_MODE']    = 'true'
 $envMap['UPDATE_URL']           = $UpdateUrl
 # Deprecated alias, kept in step with UPDATE_URL for one release.
 $envMap['MESH_TEMPLATE_URL']    = $UpdateUrl
+# Mesh Console's gate<->app assertion secret (ensure-stack-up.sh on
+# Linux). Minted once; without it the console refuses every request.
+if (-not $envMap['MESH_CONSOLE_ASSERTION_SECRET']) {
+    $envMap['MESH_CONSOLE_ASSERTION_SECRET'] = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+}
 
 # LF, not CRLF: this file is read by bash inside the containers, where a trailing
 # \r ends up inside the value.

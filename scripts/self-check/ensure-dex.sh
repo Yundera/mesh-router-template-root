@@ -144,10 +144,18 @@ if [ "$LOCAL_ACCOUNT_CLAIMED" = "1" ]; then
       # its userinfo endpoint rather than in the ID token, so Dex must fetch it.
       getUserInfo: true
       userNameKey: preferred_username
+      # Forward Authelia's groups (users_database.yml) to the apps — an AppShield
+      # gate with OIDC_REQUIRED_GROUPS (mesh-console: admins) sees no groups and
+      # refuses everyone without both of these. Needs 'groups' on Authelia's dex
+      # client too (ensure-authelia.sh). "insecure" is about staleness, not
+      # exposure: groups refresh only when the user logs in again, so a promotion
+      # or demotion takes effect at the next login. Mirrors Yundera/template-root.
+      insecureEnableGroups: true
       scopes:
         - openid
         - profile
         - email
+        - groups
 YAML
     CONNECTOR_COUNT=$((CONNECTOR_COUNT + 1))
 else

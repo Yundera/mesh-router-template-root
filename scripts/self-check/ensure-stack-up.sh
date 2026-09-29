@@ -47,6 +47,17 @@ fi
 
 FAILED=0
 
+# Mesh Console (mesh-console / mesh-console-app): the gate signs an identity
+# assertion with this key and the app verifies it. Unset, the app refuses every
+# request (fails closed). Minted here, right before `up`, rather than in an
+# earlier step: this script runs from the freshly synced tree, so even the cycle
+# that first brings the console in starts it with the key. Nothing to back up —
+# deleting it re-mints it and the `up` below recreates both with the new value.
+if [ -z "$(get_env_value MESH_CONSOLE_ASSERTION_SECRET)" ]; then
+    set_env_value MESH_CONSOLE_ASSERTION_SECRET "$(openssl rand -hex 32)"
+    echo "Generated MESH_CONSOLE_ASSERTION_SECRET"
+fi
+
 # Never start Authelia on an image older than its database (see
 # authelia_enforce_db_floor in library/common.sh). Here, right before `up` and
 # after every step that can replace the compose file, so the pin it checks is the

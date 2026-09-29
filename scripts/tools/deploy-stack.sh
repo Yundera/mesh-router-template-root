@@ -5,6 +5,8 @@
 # to its own project directory:
 #
 #   1. copy stacks/<stack-name>/docker-compose.yml -> <dest-dir>/docker-compose.yml
+#   1b. copy stacks/<stack-name>/icon.<ext> -> <dest-dir>/.icon.<ext>, the file
+#      Maison renders the stack's tile from
 #   2. generate <dest-dir>/.env from the mesh .env, plus any extra KEY=value
 #      pairs given on the command line
 #   3. docker compose pull, then up -d --remove-orphans (both with backoff)
@@ -63,6 +65,35 @@ mkdir -p "$DEST_DIR"
 if ! cmp -s "$SRC_COMPOSE" "$DEST_COMPOSE"; then
     cp "$SRC_COMPOSE" "$DEST_COMPOSE"
     echo "Updated $DEST_COMPOSE from template"
+fi
+
+# --- 1b. tile icon ---------------------------------------------------------
+# The stack's directory sits directly under ${DATA_ROOT}/AppData, so Maison tiles it
+# as a MANAGED app — and a managed app's tile is rendered from `.icon.<ext>` in its
+# own folder (internal/apps/icon.go: localIcon()), falling back to the compose's
+# `icon:` URL only when that file is absent. Nothing else writes the file for these
+# stacks: Maison copies an icon at store install/update, which they go through
+# neither, and a store compose's relative `icon: icon.png` fetches nothing here
+# (appicon.fetch() ignores non-http(s) URLs) — the terminal tile rendered as a "T".
+#
+# Extensions follow Maison's appicon.Path() order; the icon is looked up beside the
+# compose that was picked above, so own-tree-first holds for it too. A stack that
+# ships none is a no-op. The rm clears a copy under a DIFFERENT extension: two
+# .icon.* files would make Path()'s answer depend on its ordering, not the template.
+SRC_ICON=""
+DEST_ICON=""
+for ext in png svg jpg jpeg webp gif ico avif; do
+    if [ -f "$(dirname "$SRC_COMPOSE")/icon.$ext" ]; then
+        SRC_ICON="$(dirname "$SRC_COMPOSE")/icon.$ext"
+        DEST_ICON="$DEST_DIR/.icon.$ext"
+        break
+    fi
+done
+if [ -n "$SRC_ICON" ] && ! cmp -s "$SRC_ICON" "$DEST_ICON"; then
+    rm -f "$DEST_DIR"/.icon.*
+    cp "$SRC_ICON" "$DEST_ICON"
+    chown "${PUID:-1000}:${PGID:-1000}" "$DEST_ICON" 2>/dev/null || true
+    echo "Updated $DEST_ICON from template"
 fi
 
 # --- 2. .env ---------------------------------------------------------------
