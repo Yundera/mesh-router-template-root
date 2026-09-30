@@ -318,3 +318,82 @@ evict_name_squatters() {
 
     return "$rc"
 }
+
+# Create the shared `pcs` network if it does not exist yet.
+#
+# Every stack joins `pcs` as `external: true` — mesh, auth, maison, terminal — so no
+# project owns it. It used to belong to the mesh stack, which made the order stacks
+# came up in load-bearing (nothing else could start until mesh had created it) and
+# meant a `docker compose down` of mesh tried to delete a network every other stack
+# was still attached to. A box that has one already keeps it: the compose labels it
+# carries from the mesh project are harmless to an external user.
+#
+# CREATED WITH THOSE SAME LABELS, and that is for rollback. A pre-split template
+# declares `pcs` as the mesh project's own network, and compose refuses outright to
+# use a same-named network without a matching com.docker.compose.network label
+# ("has incorrect label ... set to """): rolled back, a box whose `pcs` came from
+# a plain `docker network create` would get no mesh stack at all. With the labels
+# it is indistinguishable from the network the old template created (verified,
+# compose v5.3). Keep in step with install.sh / install.ps1 (--windows paths).
+#
+# Usage: ensure_pcs_network
+ensure_pcs_network() {
+    docker network inspect pcs >/dev/null 2>&1 && return 0
+    docker network create \
+        --label com.docker.compose.network=pcs \
+        --label com.docker.compose.project=mesh \
+        pcs >/dev/null && echo "Created network 'pcs'"
+}
+
+# Remove a network another compose project created, so <project> can recreate it
+# as its own.
+#
+# Compose attaches to a same-named network owned by another project with only a
+# warning ("was not created for project ..."), and that project's `down` never
+# removes it — so after a service moves between stacks, its private network would
+# keep the old owner label, and the warning, forever. Only an EMPTY network is
+# removed: run it after evict_name_squatters, which is what detaches the moved
+# containers. A network still in use is left alone and retried next cycle.
+#
+# Usage: adopt_network <network-name> <project>
+adopt_network() {
+    local net="$1" project="$2" owner attached
+    owner="$(docker network inspect -f '{{index .Labels "com.docker.compose.project"}}' "$net" 2>/dev/null)" || return 0
+    [ "$owner" = "$project" ] && return 0
+    attached="$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$net" 2>/dev/null || true)"
+    if [ -n "${attached// /}" ]; then
+        echo "WARN: network '$net' belongs to '${owner:-no compose project}', not '$project', and is still in use by: ${attached% } - leaving it for a later cycle"
+        return 0
+    fi
+    docker network rm "$net" >/dev/null && echo "Removed network '$net' (owned by '${owner:-no compose project}') so '$project' recreates it"
+}
+
+# Print the services of <project>'s containers that another stack now declares.
+#
+# A service that moves between stacks is an orphan of its old project from the
+# moment the old compose file stops listing it — and `up --remove-orphans` on that
+# project would delete it before the new stack has taken it over. On the cycle a
+# template moves dex/authelia/auth-registrar from mesh to auth, ensure-stack-up.sh
+# runs first, so that is the difference between a login that stays up and one that
+# is gone until ensure-auth-stack.sh; if the auth deploy then fails, it is the
+# difference between a login that stays up and none at all. The caller keeps the
+# orphans (skips --remove-orphans) while this prints anything; the new stack's own
+# evict_name_squatters is what retires them.
+#
+# Usage: services_handed_over <project> <compose-file>...
+services_handed_over() {
+    local project="$1" file svc declared="" running
+    shift
+    for file in "$@"; do
+        [ -f "$file" ] || continue
+        # No interpolation needed to list services; a missing .env only warns.
+        declared+="$(docker compose -f "$file" config --services 2>/dev/null || true)"$'\n'
+    done
+    [ -n "${declared//$'\n'/}" ] || return 0
+    running="$(docker ps -a --filter "label=com.docker.compose.project=$project" \
+        --format '{{.Label "com.docker.compose.service"}}' 2>/dev/null || true)"
+    for svc in $running; do
+        grep -qx -- "$svc" <<<"$declared" && echo "$svc"
+    done
+    return 0
+}

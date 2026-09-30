@@ -63,7 +63,12 @@ DEFAULT_SERVICE_HOST=my-app     # container name, or host.docker.internal for a 
 DEFAULT_SERVICE_PORT=3000
 ```
 
-then `cd /DATA/AppData/mesh && docker compose up -d`.
+then run the self-check (`sudo bash /DATA/AppData/mesh/scripts/self-check.sh`). It
+recreates both readers of the setting: `mesh-router-caddy` (mesh stack) and
+`auth-registrar` (auth stack, whose `.env` is regenerated from the mesh one). A bare
+`cd /DATA/AppData/mesh && docker compose up -d` moves the route at once, but logins on
+the bare domain keep bouncing to `<app>-${DOMAIN}` until the auth stack follows on the
+next self-check.
 
 - The target container **must be attached to the `pcs` network** — Caddy resolves it by
   Docker DNS. A container that isn't on `pcs`, or a typo, gives a 502 on the root domain
@@ -79,7 +84,8 @@ then `cd /DATA/AppData/mesh && docker compose up -d`.
 The CasaOS replacement: the same app grid and the same CasaOS App Store format, in a
 single Go binary driving the Docker socket. Deployed as its **own compose stack** to
 `${DATA_ROOT}/AppData/maison` by `scripts/self-check/ensure-maison-stack.sh`, not as
-part of the mesh stack — it attaches to the `pcs` network the mesh stack owns.
+part of the mesh stack — it attaches to the shared `pcs` network (see
+[Network Configuration](#network-configuration)).
 
 - Reachable at `maison-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants), and it is
   what the root domain points at by default (`DEFAULT_SERVICE_HOST=maison`).
@@ -116,10 +122,18 @@ gate, and `mesh-console-app`) — not a stack of its own.
   `ensure-template-sync.sh` after each sync: `{url, commit, synced_at}`) with the head of
   the `UPDATE_URL` branch on GitHub.
 
-### dex / authelia / auth-registrar (SSO)
+### dex / authelia / auth-registrar (SSO) — the `auth` stack
 
 Single sign-on for apps installed on the PCS. Apps delegate login via OIDC instead of
 holding their own credentials.
+
+These three are their **own compose stack**, `auth` (`stacks/auth/`), deployed to
+`${DATA_ROOT}/AppData/auth` by `scripts/self-check/ensure-auth-stack.sh` right after the
+mesh stack. That directory holds only the generated `docker-compose.yml` and `.env`: the
+data stays under `${DATA_ROOT}/AppData/mesh` (`auth/`, `dex/`, `dex-frontend/`), where it
+was when these were mesh services. Container names are unchanged, so everything else
+still reaches them by name on `pcs`. The auth-console admin UI (not built yet) will join
+this stack at `auth-console-${DOMAIN}`.
 
 - **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
   `/.well-known/openid-configuration`). A pure broker: it holds no credential of its
@@ -129,7 +143,7 @@ holding their own credentials.
 - **authelia** — the PCS-local credential store at `https://local-auth-${DOMAIN}`,
   federated by Dex as the "Local Account" connector. Owns the account that used to
   live in CasaOS. Its own login page carries the password-reset link, which mails
-  through the `smtp` relay in this stack. Exactly one OIDC client (Dex); per-app
+  through the `smtp` relay in the mesh stack. Exactly one OIDC client (Dex); per-app
   clients stay on Dex's gRPC path.
 - **auth-registrar** — apps self-register as OIDC clients (`POST /register` to
   `http://auth-registrar:9092`, internal only); the registrar creates the client in Dex
@@ -142,7 +156,7 @@ holding their own credentials.
   `${DATA_ROOT}/AppData/mesh/auth` holds the local account — back it up.
 - Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
   `dex-internal` network via the network-scoped `dex-grpc` alias, never `pcs` and
-  never `0.0.0.0`.
+  never `0.0.0.0`. That network belongs to the auth stack; nothing outside it joins.
 - **Extending it.** Drop a connector into
   `${DATA_ROOT}/AppData/mesh/dex/connectors.d/*.yaml` (runtime dir, so a template
   update never reverts it) and it is concatenated into Dex's config on the next
@@ -187,7 +201,10 @@ from. See [doc/alignment-with-template-root.md](doc/alignment-with-template-root
 
 ## Network Configuration
 
-All services connect via the `pcs` bridge network, enabling internal communication:
+All services connect via the `pcs` bridge network, enabling internal communication.
+Every stack — mesh, auth, maison, terminal — joins it as `external: true`; the
+self-check creates it (`ensure_pcs_network` in `scripts/library/common.sh`) before the
+first stack comes up, so no stack owns it and none has to start first.
 
 ```
 External Request
@@ -365,7 +382,11 @@ knowing:
 ├── scripts/                      # live scripts (self-check.sh, library/, self-check/, tools/, migrations/)
 ├── migration-markers/            # one marker per applied migration
 ├── log/mesh.log                  # self-check log (logrotate: daily, 7 days)
-└── data/                         # runtime state: certs, caddy
+├── data/                         # runtime state: certs, caddy
+└── auth/, dex/, dex-frontend/    # the auth stack's data (Authelia, Dex, login theme)
+
+/DATA/AppData/auth/               # the auth stack's project dir: generated compose + .env only
+/DATA/AppData/maison/, terminal/  # the other auxiliary stacks
 ```
 
 ### What runs (in order, from `scripts/self-check/scripts-config.txt`)
@@ -379,8 +400,9 @@ knowing:
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Authelia
    (`ensure-authelia.sh`: secrets, JWKS key, config, owner-account seed), mint the Dex
    session key, provision Dex SSO (`ensure-dex.sh`: render config, append connectors,
-   provision the login theme), `docker compose pull`, `up -d`, then the auxiliary stacks
-   (Maison, Mesh Console)
+   provision the login theme), `docker compose pull`, `up -d` of the mesh stack (which also
+   creates the shared `pcs` network), then the auth stack (`ensure-auth-stack.sh`), then the
+   auxiliary stacks (Maison, Terminal)
 5. **Verification** (check-only) — routes registered with the backend, own domain reachable
    end-to-end (`curl -H 'X-Mesh-Trace: 1' https://$DOMAIN/`)
 
@@ -452,9 +474,10 @@ curl -fsSL https://nsl.sh/dashboard/uninstall.sh | sudo bash -s -- --yes
 sudo bash /DATA/AppData/mesh/template/uninstall.sh
 ```
 
-`uninstall.sh` stops and removes the `mesh` stack (tunnel, agent, caddy, smtp, casaos) and its
-caddy volumes, removes the nightly self-check cron entry and `/etc/logrotate.d/mesh-router`, and
-deletes `/DATA/AppData/mesh` and the compatibility symlink left at the old
+`uninstall.sh` stops and removes the `mesh`, `auth` and `maison` stacks and their volumes,
+removes the nightly self-check cron entry and `/etc/logrotate.d/mesh-router`, and deletes
+`/DATA/AppData/mesh` (which holds the auth stack's data too), `/DATA/AppData/maison`, the auth
+stack's generated files in `/DATA/AppData/auth`, and the compatibility symlink left at the old
 `/DATA/AppData/casaos/apps/mesh` path.
 It never touches Docker, user-installed apps, or user data (`/DATA/Documents`, `/DATA/Downloads`,
 `/DATA/Media`, other `/DATA/AppData` apps). Run without `--yes` for an interactive confirmation.

@@ -35,15 +35,8 @@ if [ ! -f "$MESH_ROOT/Caddyfile" ] || [ -d "$MESH_ROOT/Caddyfile" ]; then
     cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 fi
 
-# Exactly the same hazard, one service over: the compose file bind-mounts
-# dex-frontend/templates/{login,header}.html as SINGLE FILES, so a `up -d` before
-# they exist makes Docker create them as directories and `dex` can never start
-# again ("not a directory"). The tool is idempotent and cheap; running it here as
-# well as in ensure-dex.sh means no path reaches `up` without those files.
-if [ -x "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" ]; then
-    "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" \
-        || echo "WARN: Dex frontend provisioning reported an error; continuing"
-fi
+# The Dex login-theme files and the Authelia pin check that used to sit here moved
+# to ensure-auth-stack.sh with the services they protect.
 
 FAILED=0
 
@@ -58,11 +51,8 @@ if [ -z "$(get_env_value MESH_CONSOLE_ASSERTION_SECRET)" ]; then
     echo "Generated MESH_CONSOLE_ASSERTION_SECRET"
 fi
 
-# Never start Authelia on an image older than its database (see
-# authelia_enforce_db_floor in library/common.sh). Here, right before `up` and
-# after every step that can replace the compose file, so the pin it checks is the
-# pin that gets started.
-authelia_enforce_db_floor "$APP_DIR/docker-compose.yml" "$MESH_ROOT/auth" || FAILED=1
+# Every stack joins `pcs` as external; nothing creates it but this.
+ensure_pcs_network || FAILED=1
 
 cd "$APP_DIR"
 
@@ -70,11 +60,24 @@ cd "$APP_DIR"
 # the whole stack (see evict_name_squatters in library/common.sh).
 evict_name_squatters || FAILED=1
 
+# --remove-orphans, EXCEPT while this project still holds containers another stack
+# now declares (see services_handed_over in library/common.sh). On the cycle that
+# moved dex/authelia/auth-registrar out, this runs before ensure-auth-stack.sh, and
+# pruning them here would drop every login on the box until that script had run —
+# or for good, if it then failed. Kept, they keep serving; the auth stack's own
+# eviction retires them, and the next cycle prunes normally.
+UP_ARGS=(-d --remove-orphans)
+HANDED_OVER="$(services_handed_over mesh "$TEMPLATE_DIR/stacks/auth/docker-compose.yml" | xargs)"
+if [ -n "$HANDED_OVER" ]; then
+    echo "WARN: keeping mesh containers now owned by the auth stack until it takes them over: $HANDED_OVER"
+    UP_ARGS=(-d)
+fi
+
 # If `up` still fails, start whatever it did create before reporting: compose
 # aborts mid-way leaving containers in `Created`, and install.sh has already taken
 # the stack down, so a hard exit here leaves the box with no routing at all. A
 # partial stack (caddy + tunnel up, one service missing) is far better than none.
-if docker compose up -d --remove-orphans; then
+if docker compose up "${UP_ARGS[@]}"; then
     echo "Containers started"
 else
     echo "ERROR: 'docker compose up' failed - starting the containers it did create so the box is not left dark"

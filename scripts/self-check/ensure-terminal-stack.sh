@@ -23,8 +23,8 @@
 # Opt out with TERMINAL_ENABLED=false (or 0/no/off) in the mesh .env: the stack is taken
 # down and not redeployed. Default is enabled.
 #
-# ORDERING: must run AFTER ensure-stack-up.sh — the `pcs` network is owned by the mesh
-# stack, and the gate needs auth-registrar / dex reachable by name on it.
+# ORDERING: must run AFTER ensure-auth-stack.sh — the gate needs auth-registrar / dex
+# (auth stack) reachable by name on `pcs`.
 set -euo pipefail
 
 # shellcheck disable=SC1091

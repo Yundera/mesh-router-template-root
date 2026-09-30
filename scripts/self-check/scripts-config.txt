@@ -23,8 +23,8 @@ ensure-public-ip.sh
 ensure-email-synced.sh
 # ensure-authelia.sh MUST run before ensure-dex.sh: it mints AUTHELIA_DEX_SECRET
 # into .env, which ensure-dex.sh interpolates into the Dex "Local Account"
-# connector's clientSecret. Both run BEFORE the stack comes up so docker compose
-# interpolates the secret and each service finds its config on first start.
+# connector's clientSecret. Both run BEFORE ensure-auth-stack.sh so each service
+# finds its config on first start.
 ensure-authelia.sh
 # ensure-dex-session-key.sh MUST run before ensure-dex.sh: it mints
 # DEX_SESSION_KEY into .env, which ensure-dex.sh interpolates into
@@ -34,11 +34,17 @@ ensure-authelia.sh
 ensure-dex-session-key.sh
 ensure-dex.sh
 ensure-stack-pulled.sh
+# ensure-stack-up.sh also creates the `pcs` network every stack joins as external.
 ensure-stack-up.sh
+# The auth stack (dex, authelia, auth-registrar) — split out of the mesh stack.
+# MUST stay after ensure-stack-up.sh (Caddy routes auth-* and local-auth-*, smtp
+# relays Authelia's mail) and after the renders above. Its first run is the
+# cutover: it evicts the mesh-project copies of those containers and recreates
+# them here (see the header of ensure-auth-stack.sh).
+ensure-auth-stack.sh
 
-# Auxiliary stack — Maison, the dashboard. MUST stay after ensure-stack-up.sh: it
-# attaches to the `pcs` network, which the mesh stack owns and creates, and its
-# AppShield gate needs auth-registrar / dex reachable by name on it.
+# Auxiliary stack — Maison, the dashboard. MUST stay after ensure-auth-stack.sh:
+# its AppShield gate needs auth-registrar / dex reachable by name on `pcs`.
 ensure-maison-stack.sh
 # Projects CasaOS-installed apps (boxes provisioned before CasaOS was removed) into
 # Maison's layout so they are manageable rather than merely visible. No-op on a
@@ -46,7 +52,8 @@ ensure-maison-stack.sh
 ensure-maison-app-mirror.sh
 
 # The web Terminal - the AppStore's Terminal app shipped as a system app
-# (stacks/terminal/). Same constraint as Maison above: its gate joins `pcs`.
+# (stacks/terminal/). Same constraint as Maison above: its gate registers through
+# auth-registrar.
 # Opt out with TERMINAL_ENABLED=false in the mesh .env.
 ensure-terminal-stack.sh
 

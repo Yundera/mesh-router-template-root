@@ -9,7 +9,11 @@
 #      Maison renders the stack's tile from
 #   2. generate <dest-dir>/.env from the mesh .env, plus any extra KEY=value
 #      pairs given on the command line
-#   3. docker compose pull, then up -d --remove-orphans (both with backoff)
+#   3. docker compose pull, then up -d --remove-orphans (both with backoff).
+#      Between the two: evict containers squatting this stack's names, then run
+#      stacks/<stack-name>/pre-up.sh <dest-dir> <dest-compose> if the stack ships
+#      one — the place for work that has to see the deployed compose file and the
+#      evicted state, and must happen before `up` (the auth stack uses it).
 #
 # THE STACK IS NOT READ FROM $SCRIPTS_DIR. ensure-template-sync.sh propagates only
 # docker-compose.yml, the Caddyfile and scripts/ to live locations — stacks/ is not
@@ -160,10 +164,24 @@ pull_once() { COMPOSE_PARALLEL_LIMIT=1 compose pull; }
 up_once()   { compose up --quiet-pull --remove-orphans -d; }
 
 run_with_backoff "pull" pull_once
+# Every stack joins `pcs` as external (see ensure_pcs_network in library/common.sh).
+ensure_pcs_network
 # Retrying cannot clear a name held by another project's container; evicting it
-# can (see evict_name_squatters in library/common.sh).
+# can (see evict_name_squatters in library/common.sh). After the pull, not before:
+# an evicted service is down until the `up` below, so keep that window short.
 evict_name_squatters --project-directory "$DEST_DIR" -f "$DEST_COMPOSE" \
     || log_warn "[$STACK_NAME] could not remove a container squatting one of this stack's names"
+# Looked up beside the compose that was picked above, so own-tree-first holds for
+# it too. A failing hook fails the deploy but NOT the `up`: the eviction above has
+# already stopped whatever this stack replaces, so skipping `up` would leave those
+# services down rather than degraded.
+PRE_UP="$(dirname "$SRC_COMPOSE")/pre-up.sh"
+HOOK_FAILED=0
+if [ -f "$PRE_UP" ] && ! bash "$PRE_UP" "$DEST_DIR" "$DEST_COMPOSE"; then
+    log_error "[$STACK_NAME] pre-up hook failed ($PRE_UP); bringing the stack up anyway"
+    HOOK_FAILED=1
+fi
 run_with_backoff "up" up_once
 
 echo "[$STACK_NAME] stack is up ($DEST_DIR)"
+exit "$HOOK_FAILED"

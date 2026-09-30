@@ -69,7 +69,7 @@ services:
       # (DEFAULT_SERVICE_HOST=maison), this gate is also served at the BARE
       # ${DOMAIN}, and `<app>-<suffix>` has no way to say that — which is why the
       # registrar has to be the one to answer (see ROOT_CLIENT_ID on
-      # auth-registrar in the mesh stack).
+      # auth-registrar in the auth stack).
       REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
       BACKEND_HOST: "maison-app"
       BACKEND_PORT: "8080"
@@ -240,8 +240,8 @@ services:
         read_only: true
 
 networks:
-  # Created and owned by the `mesh` stack — this project only attaches to it.
-  # ensure-maison-stack.sh therefore runs after ensure-stack-up.sh.
+  # Created by ensure_pcs_network (library/common.sh) and owned by no stack —
+  # every one, this included, only attaches to it.
   pcs:
     name: pcs
     external: true

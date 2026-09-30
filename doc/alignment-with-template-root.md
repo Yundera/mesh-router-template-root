@@ -505,6 +505,39 @@ user manager rewrites `users_database.yml` from the host, and without `watch` a
 claim or password change does not take effect until `docker restart authelia`,
 which drops every session on the box.
 
+## Auth stack split — IMPLEMENTED (unreleased, 2026-09-30)
+
+`dex`, `authelia` and `auth-registrar` left the mesh stack for their own compose project,
+`auth` (`stacks/auth/`, deployed to `${DATA_ROOT}/AppData/auth` by
+`ensure-auth-stack.sh`). Done in step with the same split in `Yundera/template-root`, which
+also gains a `mesh` stack there; the shared conventions:
+
+- **Only the project moves.** Container names, hostnames, labels, env and bind-mount paths
+  are unchanged, and the data stays under `${DATA_ROOT}/AppData/mesh`. Moving it is a
+  separate migration, if ever.
+- **`pcs` is external in every stack** and created by `ensure_pcs_network`, so no stack
+  owns it and none has to come up first. `dex-internal` moved with Dex and belongs to the
+  auth project; `adopt_network` drops the mesh-owned copy once it is empty.
+- **Cutover without a login gap.** The mesh `up` skips `--remove-orphans` while it still
+  holds containers the auth stack declares (`services_handed_over`); the auth deploy then
+  evicts them (`evict_name_squatters`) and recreates them. If the auth deploy fails, the old
+  containers keep serving.
+- `deploy-stack.sh` gained a per-stack `pre-up.sh` hook, run after the eviction and before
+  `up`: the auth stack uses it for `adopt_network` and the Authelia pin floor, which moved
+  off `ensure-stack-up.sh` with the service.
+
+Known gap: Mesh Console's "default app" action recreates only the mesh stack, so
+`auth-registrar`'s `ROOT_CLIENT_ID` follows a changed `DEFAULT_SERVICE_HOST` on the next
+self-check rather than immediately. The fix belongs in mesh-console (have the verb run the
+self-check, or also redeploy the auth stack).
+
+Rolling a box back to a pre-split template leaves the three containers in the `auth`
+project, and the old `ensure-stack-up.sh` has `evict_name_squatters` (6548236), so its mesh
+`up` evicts and recreates them under `mesh`; `${DATA_ROOT}/AppData/auth` is left behind as
+an inert directory. `ensure_pcs_network` creates `pcs` carrying the mesh project's compose
+labels for exactly this case: the old compose declares `pcs` as its own, and compose refuses
+a same-named network whose `com.docker.compose.network` label does not match.
+
 ## Open follow-ups
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.

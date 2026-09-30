@@ -619,7 +619,19 @@ if [[ "$WINDOWS_MODE" == true ]]; then
   echo "[..] Restarting stack (clean down then up)..."
   cd "$APP_DIR"
   docker compose down --remove-orphans 2>/dev/null || true
+  # `pcs` is external in every stack, so on this path nothing else creates it.
+  # Same labels as ensure_pcs_network in library/common.sh — read why there.
+  docker network inspect pcs >/dev/null 2>&1 || docker network create \
+    --label com.docker.compose.network=pcs --label com.docker.compose.project=mesh \
+    pcs >/dev/null
   docker compose up -d
+
+  # dex, authelia and auth-registrar are their own stack (stacks/auth/). The
+  # `down` above already removed any pre-split copies in the mesh project, and
+  # deploy-stack.sh evicts anything else holding their names.
+  echo "[..] Starting the auth stack..."
+  bash "$SCRIPTS_DIR/tools/deploy-stack.sh" auth "$DATA_ROOT/AppData/auth" \
+    || echo "[!!] The auth stack did not come up; routing works, but nobody can log in"
 
   echo ""
   echo "=== Installation complete (Windows) ==="

@@ -304,7 +304,48 @@ Write-Host "[OK] .env written" -ForegroundColor Green
 
 # 8. Start containers
 Write-Host "[..] Starting containers..."
+# Every stack joins `pcs` as external, so nothing creates it but the installer.
+# Same labels as ensure_pcs_network in scripts/library/common.sh — read why there.
+docker network inspect pcs *> $null
+if ($LASTEXITCODE -ne 0) {
+    docker network create --label com.docker.compose.network=pcs --label com.docker.compose.project=mesh pcs | Out-Null
+}
 Push-Location $composePath
+docker compose up -d
+Pop-Location
+
+# 9. The auth stack: dex, authelia, auth-registrar (stacks/auth/), deployed beside
+# the mesh stack the way deploy-stack.sh does it on Linux — same compose file, a
+# copy of the mesh .env, then `up`.
+Write-Host "[..] Starting the auth stack..."
+$authPath = (("$DataRoot/AppData/auth") -replace '^/c/', 'C:\') -replace '/', '\'
+if (-not (Test-Path $authPath)) {
+    New-Item -ItemType Directory -Path $authPath -Force | Out-Null
+}
+Invoke-RestMethod -Uri "$RepoBase/stacks/auth/docker-compose.yml" -OutFile "$authPath\docker-compose.yml"
+Set-Content -Path "$authPath\.env" -Value ($envLines -join "`n") -NoNewline
+
+# Before the split these three were services of the mesh project, and the plain
+# `up -d` above leaves such a box's copies running. Container names are host-wide,
+# so the auth `up` would abort on them: remove any holder that is not the auth
+# project (evict_name_squatters on Linux). Keep this list in step with the
+# container_name entries in stacks/auth/docker-compose.yml.
+foreach ($name in @('dex', 'authelia', 'auth-registrar')) {
+    $owner = docker container inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' $name 2>$null
+    if ($LASTEXITCODE -eq 0 -and $owner -ne 'auth') {
+        Write-Host "[..] Removing '$name' (project '$owner') so the auth stack can take it over"
+        docker rm -f $name | Out-Null
+    }
+}
+# dex-internal was the mesh project's network; once empty, drop it so the auth
+# project recreates it as its own (adopt_network on Linux).
+$netOwner = docker network inspect -f '{{index .Labels "com.docker.compose.project"}}' dex-internal 2>$null
+if ($LASTEXITCODE -eq 0 -and $netOwner -ne 'auth') {
+    $attached = docker network inspect -f '{{len .Containers}}' dex-internal 2>$null
+    if ($attached -eq '0') { docker network rm dex-internal | Out-Null }
+}
+
+Push-Location $authPath
 docker compose up -d
 Pop-Location
 

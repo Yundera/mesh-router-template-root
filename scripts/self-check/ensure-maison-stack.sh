@@ -13,9 +13,9 @@
 # SECURITY: the compose file never publishes Maison's port — the AppShield gate in
 # the same stack is the only route in. Do not "temporarily" add a ports: mapping.
 #
-# ORDERING: must run AFTER ensure-stack-up.sh. The `pcs` network is owned by the
-# mesh stack and joined here as external, and the gate needs auth-registrar / dex
-# (mesh stack) reachable by name on it.
+# ORDERING: must run AFTER ensure-auth-stack.sh. The gate needs auth-registrar / dex
+# (auth stack) reachable by name on `pcs`, which it joins as external like every
+# stack.
 #
 # Ported from Yundera/template-root; its CasaDash rebrand/legacy-path handling is
 # omitted because this template never shipped `casadash`.

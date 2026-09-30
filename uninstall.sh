@@ -81,13 +81,15 @@ esac
 echo "=== Mesh Router Uninstaller ==="
 echo ""
 echo "This will remove:"
-echo "  - docker stacks 'mesh' (tunnel, agent, caddy, smtp, dex, authelia,"
-echo "    auth-registrar) and 'maison' (dashboard + gate) + their volumes"
+echo "  - docker stacks 'mesh' (tunnel, agent, caddy, smtp, mesh-console), 'auth'"
+echo "    (dex, authelia, auth-registrar) and 'maison' (dashboard + gate) + their volumes"
 echo "  - the nightly self-check cron entry + /etc/logrotate.d/mesh-router"
 echo "  - $MESH_ROOT"
 # Named explicitly: this IS deleted, and until now the prompt did not say so —
 # it listed $APP_DIR and $MESH_ROOT, which are the same path since phase 3.
 echo "  - ${DATA_ROOT:-/DATA}/AppData/maison (dashboard settings + store cache)"
+echo "  - ${DATA_ROOT:-/DATA}/AppData/auth (the auth stack's generated compose + .env;"
+echo "    the accounts themselves live under $MESH_ROOT)"
 # Only when they differ — phase 3 collapsed APP_DIR into MESH_ROOT, so on a
 # current box printing both would list the same path twice.
 [ "$APP_DIR" != "$MESH_ROOT" ] && echo "  - $APP_DIR"
@@ -127,7 +129,7 @@ fi
 # `down` also removes each project's own networks.
 if command -v docker >/dev/null 2>&1; then
   echo "[..] Stopping stacks (docker compose down)..."
-  for proj_dir in "$APP_DIR" "${DATA_ROOT:-/DATA}/AppData/maison"; do
+  for proj_dir in "$APP_DIR" "${DATA_ROOT:-/DATA}/AppData/auth" "${DATA_ROOT:-/DATA}/AppData/maison"; do
       if [[ -f "$proj_dir/docker-compose.yml" ]]; then
           docker compose --project-directory "$proj_dir" \
               -f "$proj_dir/docker-compose.yml" down --remove-orphans -v >/dev/null 2>&1 || true
@@ -138,7 +140,8 @@ if command -v docker >/dev/null 2>&1; then
   # left behind — including a box uninstalled by an older version of this script,
   # which is precisely how orphaned maison containers come to exist.
   docker rm -f mesh-router-tunnel mesh-router-agent mesh-router-caddy smtp \
-      dex authelia auth-registrar casaos casaos-oidc-bridge maison maison-app >/dev/null 2>&1 || true
+      mesh-console mesh-console-app dex authelia auth-registrar \
+      casaos casaos-oidc-bridge maison maison-app >/dev/null 2>&1 || true
 
   # Remove the networks only if nothing else is attached (fails harmlessly
   # otherwise). Must come AFTER the sweep above: while any container is still on
@@ -180,10 +183,18 @@ rm -rf "$MESH_ROOT"
 # dashboard's own settings/store cache. NOT the sibling ${DATA_ROOT}/AppData/<app>
 # folders: those are user app data and predate this stack.
 rm -rf "${DATA_ROOT:-/DATA}/AppData/maison"
+# The auth stack's directory: only what deploy-stack.sh writes there. Its data
+# (auth/, dex/, dex-frontend/) is under $MESH_ROOT, removed above; anything else
+# someone put in this folder is left, and so is the folder if it is not empty.
+AUTH_DIR="${DATA_ROOT:-/DATA}/AppData/auth"
+if [ -d "$AUTH_DIR" ]; then
+  rm -f "$AUTH_DIR/docker-compose.yml" "$AUTH_DIR/.env" "$AUTH_DIR"/.icon.*
+  rmdir "$AUTH_DIR" 2>/dev/null || true
+fi
 # Name all three. This used to print "$APP_DIR and $MESH_ROOT" — the same value
 # twice once phase 3 collapsed them — and never mentioned the maison directory it
 # had just deleted.
-echo "[OK] Removed $MESH_ROOT and ${DATA_ROOT:-/DATA}/AppData/maison"
+echo "[OK] Removed $MESH_ROOT, ${DATA_ROOT:-/DATA}/AppData/maison and the auth stack files"
 
 echo ""
 echo "=== Uninstall complete ==="
