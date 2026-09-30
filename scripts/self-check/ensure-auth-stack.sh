@@ -1,5 +1,6 @@
 #!/bin/bash
-# Bring the auth stack up: dex, authelia, auth-registrar (stacks/auth/).
+# Bring the auth stack up: dex, authelia, auth-registrar and auth-console
+# (stacks/auth/).
 #
 # Deployed to ${DATA_ROOT}/AppData/auth through tools/deploy-stack.sh, like maison
 # and terminal. It renders nothing: ensure-authelia.sh and ensure-dex.sh have
@@ -36,6 +37,18 @@ FAILED=0
 if [ -x "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" ]; then
     "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" \
         || echo "WARN: Dex frontend provisioning reported an error; continuing"
+fi
+
+# auth-console (the stack's web UI): its gate signs an identity assertion with
+# this key and the app verifies it; the app also signs its session-revocation
+# requests to the gate with it. Unset, the app refuses every request (fails
+# closed). Minted here, right before the deploy copies the mesh .env into the
+# stack's own, so even the cycle that first brings the console in starts it with
+# the key. Nothing to back up — deleting it re-mints it, and only logs everyone
+# out of the console.
+if [ -z "$(get_env_value AUTH_CONSOLE_ASSERTION_SECRET)" ]; then
+    set_env_value AUTH_CONSOLE_ASSERTION_SECRET "$(openssl rand -hex 32)"
+    echo "Generated AUTH_CONSOLE_ASSERTION_SECRET"
 fi
 
 "$SCRIPTS_DIR/tools/deploy-stack.sh" auth "$AUTH_DIR" || FAILED=1

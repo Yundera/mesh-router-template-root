@@ -22,12 +22,13 @@
 # `pcs` network — external here as in every stack — is created before either
 # stack comes up (ensure_pcs_network).
 #
-# NEXT TO JOIN: auth-console (packages/mesh-router-root/auth-console, still an empty
-# repo) — the account/access admin UI. It lands here as an AppShield gate named
-# `auth-console` plus its backend `auth-console-app`, public at
-# auth-console-${DOMAIN}. NOT `auth-${DOMAIN}`: Dex owns that host, and the
+# AUTH-CONSOLE (Yundera/auth-console) is this stack's web UI and the tile's target:
+# the local accounts (Authelia users) and who can reach the host over SSH. An
+# AppShield gate named `auth-console` plus its backend `auth-console-app`, public
+# at auth-console-${DOMAIN}. NOT `auth-${DOMAIN}`: Dex owns that host, and the
 # registrar derives a gate's client_id — and so its callback hosts — from the
-# container name. Once it exists it is also what this tile's webui-host points at.
+# container name. The console is optional to login: if it is down, Dex, Authelia
+# and the registrar keep serving every other app.
 # =============================================================================
 name: auth
 
@@ -239,6 +240,108 @@ services:
     depends_on:
       - dex
 
+  # =============================================================================
+  # AUTH-CONSOLE — this stack's web UI (Yundera/auth-console): Account (the local
+  # Authelia users) and Access (host accounts, SSH keys, login history).
+  #
+  # SECURITY: auth-console-app holds the Docker socket (it runs its host actions
+  # as a one-shot privileged `auth-console-runner` in the host's namespaces), so it
+  # is root-equivalent on the host. It is reachable only through its gate: NEVER
+  # add `ports:` or caddy labels to it. The app trusts only the HS256
+  # X-AppShield-Assertion the gate signs with AUTH_CONSOLE_ASSERTION_SECRET —
+  # every container on `pcs` can reach it directly, so plain X-Auth-* / Remote-*
+  # headers prove nothing — and checks the admin group per route itself.
+  #
+  # NO OIDC_REQUIRED_GROUPS, unlike mesh-console: a non-admin account must reach
+  # its own Account page. The admin-only routes answer 403 in the app.
+  #
+  # NAMES ARE LOAD-BEARING: the registrar derives the gate's client_id from its
+  # container name, and the gate's APP_NAME (from its hostname) is the assertion
+  # audience — so the gate owns `auth-console` and the backend takes `-app`.
+  #
+  # AUTH_CONSOLE_ASSERTION_SECRET is minted into the mesh .env by
+  # ensure-auth-stack.sh right before the deploy; deleting it re-mints it and
+  # only logs everyone out of this console.
+  # =============================================================================
+  auth-console:
+    image: ghcr.io/yundera/appshield:3.0.2
+    container_name: auth-console
+    hostname: auth-console
+    restart: unless-stopped
+    # Root, like the maison and mesh-console gates: the gate-data dir is created
+    # by Docker as root, and a non-root gate silently fails to persist sessions.
+    user: "0:0"
+    cpu_shares: 40
+    mem_limit: 128m
+    expose:
+      - "80"
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Keep it
+      # matching the caddy_* labels below.
+      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "auth-console-app"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+      SESSION_DURATION_HOURS: "720"
+      # Signs the identity assertion for auth-console-app, and verifies the control
+      # tokens it sends back (POST /nhl-auth/sessions/revoke when an account is
+      # deleted or its password reset).
+      IDENTITY_ASSERTION_SECRET: "${AUTH_CONSOLE_ASSERTION_SECRET}"
+      # The only path that answers without a login: a liveness probe, no data.
+      ALLOWED_PATHS: "api/health"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/auth/auth-console/gate-data:/data
+    depends_on:
+      - auth-console-app
+      - auth-registrar
+    networks:
+      pcs: null
+    labels:
+      # Standard domain with custom CA (gateway-routed)
+      caddy_0: auth-console-${DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      # nip.io variant (custom CA) — REQUIRED: the CF worker rewrites Host to nip.io
+      caddy_1: auth-console-${PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      # sslip.io variant (Let's Encrypt)
+      caddy_2: auth-console-${PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+
+  auth-console-app:
+    # Publish the tag before moving this pin: a tag missing from ghcr costs every
+    # self-check the pull backoff.
+    image: ghcr.io/yundera/auth-console:1.0.0
+    container_name: auth-console-app
+    hostname: auth-console-app
+    restart: unless-stopped
+    # Root: it reads the mesh .env (mode 600) and talks to the Docker socket,
+    # which already makes it root-equivalent on the host.
+    user: "0:0"
+    cpu_shares: 40
+    mem_limit: 128m
+    environment:
+      IDENTITY_ASSERTION_SECRET: "${AUTH_CONSOLE_ASSERTION_SECRET}"
+      IDENTITY_ASSERTION_AUDIENCE: "auth-console"
+      APPSHIELD_GATE_URL: "http://auth-console"
+      # The mesh root as the HOST sees it. Host actions run in the host's mount
+      # namespace, so they need this path, not the /host-root mount below.
+      HOST_ROOT: "${DATA_ROOT:-/DATA}/AppData/mesh"
+      # The live scripts (ensure-template-sync.sh propagates scripts/ here), not
+      # the pristine template/ copy.
+      HOST_SCRIPTS: "${DATA_ROOT:-/DATA}/AppData/mesh/scripts"
+    expose:
+      - "8080"   # NEVER `ports:` — see the security note above
+    networks:
+      pcs: null
+    volumes:
+      # Read-only: the .env (DOMAIN, LOCAL_ADMIN_USER) and which scripts exist.
+      # Every write goes through a host action, never through this mount.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh:/host-root:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
 networks:
   # Created by ensure_pcs_network, never by a stack — see the header.
   pcs:
@@ -263,9 +366,9 @@ networks:
     internal: true
 
 # Tiles the stack in Maison's System grid: Maison refuses to stop or uninstall it
-# (every login on the box goes through it) and the nightly backup skips it. No
-# webui yet — Dex and Authelia are login pages, not an app to open; auth-console
-# will give the tile its target (see the header).
+# (every login on the box goes through it) and the nightly backup skips it. The
+# tile opens auth-console; webui-host is the only field Maison substitutes
+# ${DOMAIN} into, and it must match the gate's caddy_0.
 x-compose-app:
   schema_version: 2
   id: auth
@@ -273,3 +376,6 @@ x-compose-app:
   category: pcs
   developer: Yundera Team
   view: system
+  webui-host: auth-console-${DOMAIN}
+  webui-scheme: https
+  webui-path: /

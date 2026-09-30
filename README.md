@@ -132,8 +132,8 @@ These three are their **own compose stack**, `auth` (`stacks/auth/`), deployed t
 mesh stack. That directory holds only the generated `docker-compose.yml` and `.env`: the
 data stays under `${DATA_ROOT}/AppData/mesh` (`auth/`, `dex/`, `dex-frontend/`), where it
 was when these were mesh services. Container names are unchanged, so everything else
-still reaches them by name on `pcs`. The auth-console admin UI (not built yet) will join
-this stack at `auth-console-${DOMAIN}`.
+still reaches them by name on `pcs`. The stack's web UI, auth-console, is part of it too
+(below), and the **Auth** tile in Maison opens it.
 
 - **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
   `/.well-known/openid-configuration`). A pure broker: it holds no credential of its
@@ -154,6 +154,18 @@ this stack at `auth-console-${DOMAIN}`.
   `AUTHELIA_DEX_SECRET` that Dex's connector needs. Dex's data under
   `${DATA_ROOT}/AppData/mesh/dex` is cache and safe to delete; Authelia's under
   `${DATA_ROOT}/AppData/mesh/auth` holds the local account — back it up.
+- **auth-console** ([Yundera/auth-console](https://github.com/Yundera/auth-console)) —
+  the identity console at `https://auth-console-${DOMAIN}`: **Account** (your own
+  account, and for admins the local Authelia users: add, reset password, change email,
+  revoke) and **Access** (host Linux accounts, their SSH keys, login history; add or
+  remove a key, with a lockout warning before the last `user-` key goes). Two services:
+  the AppShield gate `auth-console` and the app `auth-console-app`. Unlike mesh-console
+  the gate does not require the `admins` group — every user may reach their own Account
+  page; admin-only routes are enforced by the app. Host actions run through the
+  template's own `authelia-user-manager.sh` and fixed key scripts, in a one-shot
+  privileged `auth-console-runner` container in the host's namespaces (no SSH). Claiming
+  the login stays on the command line (below). The console is optional to login: if it
+  is down, every other app still logs in.
 - Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
   `dex-internal` network via the network-scoped `dex-grpc` alias, never `pcs` and
   never `0.0.0.0`. That network belongs to the auth stack; nothing outside it joins.
@@ -385,7 +397,7 @@ knowing:
 ├── data/                         # runtime state: certs, caddy
 └── auth/, dex/, dex-frontend/    # the auth stack's data (Authelia, Dex, login theme)
 
-/DATA/AppData/auth/               # the auth stack's project dir: generated compose + .env only
+/DATA/AppData/auth/               # the auth stack's project dir: generated compose + .env, auth-console/gate-data
 /DATA/AppData/maison/, terminal/  # the other auxiliary stacks
 ```
 
@@ -436,6 +448,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `LOCAL_ADMIN_USER` | _(set at claim)_ | The owner's chosen username. Written by `authelia-user-manager.sh claim`; `ensure-authelia.sh` reads it to keep the right account's email in step with `EMAIL` |
 | `DEX_SESSION_KEY` | _(generated)_ | AES key encrypting Dex's session cookie. Rotating it costs one round of re-logins |
 | `MESH_CONSOLE_ASSERTION_SECRET` | _(generated)_ | Shared by the mesh-console gate (signs the identity assertion) and app (verifies it). Deleting it re-mints it on the next self-check |
+| `AUTH_CONSOLE_ASSERTION_SECRET` | _(generated)_ | Shared by the auth-console gate (signs the identity assertion, verifies session-revocation requests) and app. Minted by `ensure-auth-stack.sh`; deleting it re-mints it and only logs everyone out of the console |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs. Update such a box by re-running `install.sh` with no arguments (see [Manual update](#manual-update-installsh-with-no-arguments)) |
 | `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |

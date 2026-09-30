@@ -223,9 +223,11 @@ write_users_db() {
 
 # --- subcommands -------------------------------------------------------------
 
-# Password hashes are deliberately not included.
+# Password hashes are deliberately not included. `protected` marks the owner
+# account (LOCAL_ADMIN_USER) that delete and set-email refuse, so a UI can disable
+# those actions without guessing the owner's name.
 cmd_list() {
-    yq -o=json -I=0 '
+    PROTECTED_USER="$PROTECTED_USER" yq -o=json -I=0 '
         .users
         | to_entries
         | map({
@@ -233,7 +235,8 @@ cmd_list() {
             "displayname": (.value.displayname // ""),
             "email": (.value.email // ""),
             "groups": (.value.groups // []),
-            "disabled": (.value.disabled // false)
+            "disabled": (.value.disabled // false),
+            "protected": (.key == strenv(PROTECTED_USER))
           })
     ' "$USERS_DB"
 }
