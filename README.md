@@ -115,9 +115,12 @@ gate, and `mesh-console-app`) — not a stack of its own.
   (`MESH_CONSOLE_ASSERTION_SECRET`, minted into the mesh `.env` by
   `ensure-stack-up.sh` right before the stack comes up).
 - It holds the Docker socket and reads the mesh root **read-only**. Its two host
-  actions — run the self-check, set `DEFAULT_SERVICE_HOST`/`PORT` and recreate the mesh
-  stack — run as a one-shot privileged `mesh-console-runner` container in the host's
-  namespaces. There is no generic command path.
+  actions both call this template's own scripts — `scripts/self-check.sh`, and
+  `scripts/tools/set-default-app.sh <host> <port>`, which stores the setting in the mesh
+  `.env` and re-runs `ensure-stack-up.sh` then `ensure-auth-stack.sh` (Caddy's root route
+  and auth-registrar's `ROOT_CLIENT_ID`). They run as a one-shot privileged
+  `mesh-console-runner` container in the host's namespaces. There is no generic command
+  path. Yundera/template-root ships the same tool for its own layout.
 - The Update page compares `template/.revision.json` (written by
   `ensure-template-sync.sh` after each sync: `{url, commit, synced_at}`) with the head of
   the `UPDATE_URL` branch on GitHub.

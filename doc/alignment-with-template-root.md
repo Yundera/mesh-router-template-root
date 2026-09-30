@@ -526,10 +526,11 @@ also gains a `mesh` stack there; the shared conventions:
   `up`: the auth stack uses it for `adopt_network` and the Authelia pin floor, which moved
   off `ensure-stack-up.sh` with the service.
 
-Known gap: Mesh Console's "default app" action recreates only the mesh stack, so
-`auth-registrar`'s `ROOT_CLIENT_ID` follows a changed `DEFAULT_SERVICE_HOST` on the next
-self-check rather than immediately. The fix belongs in mesh-console (have the verb run the
-self-check, or also redeploy the auth stack).
+Closed gap: Mesh Console's "default app" action used to recreate only the mesh stack, so
+`auth-registrar`'s `ROOT_CLIENT_ID` lagged until the next self-check. Since mesh-console
+1.2.0 the console calls the template's own `scripts/tools/set-default-app.sh <host> <port>`
+— a contract both templates implement for their own layout — which writes the setting and
+re-runs `ensure-stack-up.sh` then `ensure-auth-stack.sh`.
 
 Rolling a box back to a pre-split template leaves the three containers in the `auth`
 project, and the old `ensure-stack-up.sh` has `evict_name_squatters` (6548236), so its mesh

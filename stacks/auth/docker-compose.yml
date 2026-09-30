@@ -218,10 +218,9 @@ services:
       #
       # SINCE THE SPLIT the two read it in different projects, and they must be
       # recreated together. The self-check does that (both deploys regenerate
-      # their .env from the mesh one). Mesh Console's "default app" action
-      # recreates only the mesh stack, so after using it this keeps the old value
-      # until the next self-check — the bare domain routes to the new app at once,
-      # but its login bounces to <app>-${DOMAIN} until then.
+      # their .env from the mesh one), and so does scripts/tools/set-default-app.sh
+      # — the action Mesh Console's "default app" editor calls (mesh-console
+      # >= 1.2.0), which re-runs ensure-stack-up.sh then ensure-auth-stack.sh.
       #
       # It is a proxy upstream target, not an identity: `host.docker.internal`
       # is legal here and is not a container name. The registrar validates it
