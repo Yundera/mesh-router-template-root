@@ -312,7 +312,7 @@ services:
   auth-console-app:
     # Publish the tag before moving this pin: a tag missing from ghcr costs every
     # self-check the pull backoff.
-    image: ghcr.io/yundera/auth-console:1.0.0
+    image: ghcr.io/yundera/auth-console:1.1.0
     container_name: auth-console-app
     hostname: auth-console-app
     restart: unless-stopped
