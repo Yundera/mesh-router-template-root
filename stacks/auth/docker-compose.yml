@@ -23,8 +23,8 @@
 #
 # Needs the mesh stack for four things, all by name or by path, none by
 # depends_on (which cannot cross projects): mesh-router-caddy routes auth-${DOMAIN}
-# and local-auth-${DOMAIN} (and is what the on-box issuer pins terminate on),
-# mesh-router-agent writes the mesh CA Dex and the console gate trust
+# and local-auth-${DOMAIN} (and is what Dex's on-box issuer pin terminates on),
+# mesh-router-agent writes the mesh CA Dex trusts
 # (${DATA_ROOT}/AppData/mesh/data/ca), smtp relays Authelia's password-reset mail, and the
 # `pcs` network — external here as in every stack — is created before either
 # stack comes up (ensure_pcs_network).
@@ -226,12 +226,19 @@ services:
   # this is invisible.
   # =============================================================================
   auth-registrar:
-    image: ghcr.io/yundera/mesh-auth:1.1.6
+    image: ghcr.io/yundera/mesh-auth:1.1.7
     container_name: auth-registrar
     hostname: auth-registrar
     restart: unless-stopped
     environment:
       ISSUER_URL: https://auth-${DOMAIN}
+      # The same issuer as reached from inside the box: Dex's own listener on
+      # `pcs`, the one Caddy proxies auth-${DOMAIN} to. Returned from /register as
+      # `internal_issuer_url`; an AppShield >= 3.1.0 gate sends its discovery,
+      # code exchange and key fetch there instead of resolving the public
+      # hostname. The issuer above stays the identity. `dex` and not the dex-grpc
+      # alias: gates are on `pcs` only, and the web listener binds 0.0.0.0.
+      INTERNAL_ISSUER_URL: http://dex:5556
       REGISTRAR_BACKEND: dex
       # Dex gRPC is reachable only on the isolated dex-internal net, via the
       # network-scoped `dex-grpc` alias declared on the dex service (no fixed
@@ -299,7 +306,7 @@ services:
   # only logs everyone out of this console.
   # =============================================================================
   auth-console:
-    image: ghcr.io/yundera/appshield:3.0.2
+    image: ghcr.io/yundera/appshield:3.1.1
     container_name: auth-console
     hostname: auth-console
     restart: unless-stopped
@@ -325,14 +332,13 @@ services:
       IDENTITY_ASSERTION_SECRET: "${AUTH_CONSOLE_ASSERTION_SECRET}"
       # The only path that answers without a login: a liveness probe, no data.
       ALLOWED_PATHS: "api/health"
-      # Trust the mesh CA for the on-box call to Dex — see the mesh-console gate
-      # in the mesh stack's docker-compose.yml for the full reasoning.
-      SSL_CERT_DIR: "/ca"
-    extra_hosts:
-      - "auth-${DOMAIN}:host-gateway"
+    # The OIDC back-channel stays on the box with nothing configured here:
+    # auth-registrar hands the gate `internal_issuer_url` (http://dex:5556) and
+    # AppShield >= 3.1.0 sends its discovery, token and JWKS calls there. No
+    # extra_hosts pin, no SSL_CERT_DIR, no mesh CA mount — see the mesh-console
+    # gate in the mesh stack's docker-compose.yml.
     volumes:
       - ${DATA_ROOT:-/DATA}/AppData/auth/auth-console/gate-data:/data
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
     depends_on:
       - auth-console-app
       - auth-registrar

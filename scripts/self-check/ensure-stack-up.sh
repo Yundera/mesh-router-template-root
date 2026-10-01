@@ -38,7 +38,7 @@ fi
 # The Dex login-theme files and the Authelia pin check that used to sit here moved
 # to ensure-auth-stack.sh with the services they protect.
 
-# THE MESH CA LIVES IN data/ca, ALONE. Dex and every first-party gate mount that
+# THE MESH CA LIVES IN data/ca, ALONE. Dex mounts that
 # directory read-only to trust the certificate Caddy serves on the on-box path
 # (see CA_CERT_PATH on mesh-router-agent in docker-compose.yml). Before that
 # variable existed the agent wrote the CA beside the private key, in data/certs.
@@ -140,7 +140,7 @@ if grep -q 'CA_CERT_PATH' "$APP_DIR/docker-compose.yml"; then
         sleep 2
     done
     [ -s "$MESH_CA_DIR/ca-cert.pem" ] \
-        || echo "WARN: mesh-router-agent has not written $MESH_CA_DIR/ca-cert.pem yet - on-box login calls (Dex, the gates) cannot verify TLS until it does"
+        || echo "WARN: mesh-router-agent has not written $MESH_CA_DIR/ca-cert.pem yet - Dex cannot verify TLS on its on-box call to Authelia until it does"
 fi
 
 exit "$FAILED"

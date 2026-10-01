@@ -48,7 +48,7 @@ services:
   # unrouted host and login dead-ends. The gate therefore takes the app's public
   # name; the backend gets the suffix.
   maison:
-    image: ghcr.io/yundera/appshield:3.0.2
+    image: ghcr.io/yundera/appshield:3.1.1
     container_name: maison
     hostname: maison
     restart: unless-stopped
@@ -92,13 +92,12 @@ services:
       # already shows. Bypassed requests still have every identity header stripped
       # (AppShield router.go), so this cannot be used to forge a user.
       ALLOWED_PATHS: "manifest.webmanifest,icons"
-      # Trust the mesh CA for the on-box call to Dex — see the mesh-console gate
-      # in the mesh stack's docker-compose.yml for the full reasoning.
-      SSL_CERT_DIR: "/ca"
-    extra_hosts:
-      - "auth-${DOMAIN}:host-gateway"
+    # The OIDC back-channel stays on the box with nothing configured here:
+    # auth-registrar hands the gate `internal_issuer_url` (http://dex:5556) and
+    # AppShield >= 3.1.0 sends its discovery, token and JWKS calls there. No
+    # extra_hosts pin, no SSL_CERT_DIR, no mesh CA mount — see the mesh-console
+    # gate in the mesh stack's docker-compose.yml.
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
       # Gate state under /data: persisted login sessions (sessions.json, AppShield
       # >= 2.0.6) and the MCP OAuth provider state. Without this mount a container
       # recreate logs everyone out regardless of SESSION_DURATION_HOURS.

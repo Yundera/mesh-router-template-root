@@ -624,13 +624,19 @@ a real-box test, which is why they are not in this pass):
 
 Ported from `template-root`. Dex's calls to Authelia (`local-auth-${DOMAIN}`) and every
 first-party gate's calls to Dex (`auth-${DOMAIN}`) used to resolve those names publicly: out
-through the gateway and back into the same machine. They now stay on the box.
+through the gateway and back into the same machine. They now stay on the box — by two
+different means.
 
-- **The pin.** `extra_hosts: "<host>:host-gateway"` on Dex and on the mesh-console,
-  auth-console and Maison gates. The issuer string is unchanged; only the lookup moves, to
-  this host's `:443`, which is mesh-router-caddy.
-- **The trust.** On that path Caddy serves the mesh certificate (`gateway_tls`), so those
-  containers get `SSL_CERT_DIR=/ca` and a read-only mount of `data/ca`. A directory adds
+- **The gates: no pin, no CA.** `auth-registrar` (mesh-auth 1.1.7) is given
+  `INTERNAL_ISSUER_URL=http://dex:5556` and returns it as `internal_issuer_url`; AppShield
+  3.1 sends its discovery, token and key requests there and keeps the public issuer as the
+  identity. The mesh-console, auth-console and Maison gates mount nothing from the mesh
+  stack. (They briefly carried the same pin as Dex, in the working tree only; it never
+  shipped.)
+- **Dex: the pin.** `extra_hosts: "local-auth-${DOMAIN}:host-gateway"`. The issuer string
+  is unchanged; only the lookup moves, to this host's `:443`, which is mesh-router-caddy.
+- **The trust.** On that path Caddy serves the mesh certificate (`gateway_tls`), so Dex
+  gets `SSL_CERT_DIR=/ca` and a read-only mount of `data/ca`. A directory adds
   roots to the image's bundle; `SSL_CERT_FILE` would replace it.
 - **The CA in its own folder.** `CA_CERT_PATH=/app/ca/ca-cert.pem` on the agent, so the mount
   never carries `key.pem`. Without it the agent writes the CA beside the key.
@@ -646,8 +652,9 @@ through the gateway and back into the same machine. They now stay on the box.
 - Not ported: the `(dex_router*)` Caddy snippets. They move Dex's TLS choice and upstream
   from labels into the Caddyfile and change nothing about the path.
 - Not covered: the Terminal gate (a copy of the store app, on both templates), and store apps
-  in general. A new CA reaches the file at the next agent start, but Dex and the gates would
-  need a restart to load it — Go reads its roots once.
+  in general — each gets the on-box path when its AppShield pin reaches 3.1. A new CA reaches
+  the file at the next agent start, but Dex would need a restart to load it — Go reads its
+  roots once.
 
 Tested on watch.nsl.sh 2026-10-01 from the working tree (`file://` tarball), two runs, 19/19:
 the CA moved, Dex opened the Local Account connector over the pinned path, and all three
