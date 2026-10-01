@@ -14,12 +14,15 @@
 #   - render configuration.yml every run (tracks DOMAIN),
 #   - seed the admin user in users_database.yml from DEFAULT_PWD, refreshing only
 #     the email on later runs (Authelia owns the password once the user changes it),
-#   - restart authelia so a re-rendered config is picked up.
+#   - restart authelia so a re-rendered config is picked up, and WAIT for it to
+#     serve again before returning (ensure-dex.sh restarts Dex moments later).
 #
 # MUST RUN BEFORE ensure-dex.sh — it mints AUTHELIA_DEX_SECRET, which the same
 # cycle's Dex render interpolates into the Local Account connector.
 #
-# Storage layout (host ${DATA_ROOT}/AppData/mesh/auth/, mounted at /config):
+# Storage layout (host ${DATA_ROOT}/AppData/auth/authelia/, mounted at /config —
+# the auth stack's own folder; adopt_auth_state moves it there from the mesh root
+# on a box that predates the move):
 #   secrets/{session,storage,reset,oidc-hmac}  generate-once (chmod 600)
 #   secrets/dex-client-hash                    pbkdf2 hash of AUTHELIA_DEX_SECRET
 #   oidc/private.pem                           RSA-4096 JWKS signing key
@@ -28,8 +31,9 @@
 #   db.sqlite                                  session/regulation store
 #
 # RECOVERY: unlike the dex dir this holds the local account and IS worth keeping.
-# Losing it resets the local password to DEFAULT_PWD on the next run (and the
-# email reset flow still works), so it is not a dead end — but back it up.
+# Losing it drops the box back to UNCLAIMED on the next run — the owner re-claims
+# over SSH (tools/authelia-user-manager.sh claim), so it is not a dead end — but
+# back it up.
 #
 # Ported from Yundera/template-root, with envsubst replaced by pure-bash
 # substitution: this installer targets arbitrary boxes and must not require
@@ -38,8 +42,15 @@ set -euo pipefail
 
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/authelia-ready.sh"
 
-AUTH_ROOT="$MESH_ROOT/auth"
+# Fatal: rendering into an empty folder while the real state still sits at the
+# pre-move path would seed a second, unclaimed user store. The migration normally
+# did this already; see adopt_auth_state for why it is repeated here.
+adopt_auth_state
+
+AUTH_ROOT="$AUTHELIA_HOME"
 SECRETS_DIR="$AUTH_ROOT/secrets"
 OIDC_DIR="$AUTH_ROOT/oidc"
 
@@ -339,9 +350,13 @@ EOF
 fi
 
 # Pick up the re-rendered config. SIGHUP is NOT safe (Authelia 4.39 exits on it);
-# docker restart is a clean SIGTERM + start. Silent on cold boot.
-if docker inspect authelia >/dev/null 2>&1; then
-    docker restart authelia >/dev/null 2>&1 || true
+# docker restart is a clean SIGTERM + start. Silent on cold boot, and skipped for
+# a container still bound to the pre-move directory — restarting that one would
+# start it on an empty folder; ensure-auth-stack.sh recreates it.
+if restart_if_bound authelia "$AUTH_ROOT"; then
+    # Do NOT return before it answers: ensure-dex.sh restarts Dex seconds from
+    # now, and Dex drops a connector whose issuer is not serving at its startup.
+    wait_for_authelia
 fi
 
 # If the secret was minted just now, Dex's config was rendered without it —

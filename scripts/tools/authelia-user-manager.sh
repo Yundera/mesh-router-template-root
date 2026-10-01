@@ -40,7 +40,11 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 
-AUTH_ROOT="$MESH_ROOT/auth"
+# The store may still be at its pre-move path on a box where nothing has run
+# since the template changed (see adopt_auth_state). To stderr: stdout is JSON.
+adopt_auth_state >&2
+
+AUTH_ROOT="$AUTHELIA_HOME"
 USERS_DB="$AUTH_ROOT/users_database.yml"
 LOCK_FILE="$AUTH_ROOT/.users-db.lock"
 

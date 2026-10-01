@@ -1,5 +1,5 @@
 # Dex configuration template.
-# Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/mesh/dex/config.yaml
+# Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/auth/dex/config.yaml
 # on every self-check. DO NOT edit the rendered file — edit this template and let
 # the self-check re-render it. Substituted tokens: ${DOMAIN} and
 # ${AUTHELIA_DEX_SECRET} (minted by ensure-authelia.sh, which runs just before).
@@ -7,7 +7,7 @@
 issuer: https://auth-${DOMAIN}
 
 # Single SQLite file living in the mounted data dir (/data -> host
-# ${DATA_ROOT}/AppData/mesh/dex). Dex creates + migrates it on first start; it
+# ${DATA_ROOT}/AppData/auth/dex). Dex creates + migrates it on first start; it
 # must be writable by the dex container uid (1001) — ensure-dex.sh owns the perms.
 storage:
   type: sqlite3

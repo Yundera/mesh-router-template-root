@@ -7,11 +7,12 @@ propagated to its live location.
 
 ## Why they exist
 
-`self-check.sh` reads `scripts-config.txt` into memory and runs a single pass, so an
-ensure-script **added** by a release does not execute until the *next* nightly cycle — while
-the new `docker-compose.yml` is copied and brought up during *this* one. Anything that must
-happen in the same cycle as the compose swap (minting a secret a new service needs, removing
-a service, renaming an env key) belongs in a migration, not in a new ensure-script.
+`self-check.sh` reads `scripts-config.txt` into memory and runs that list first. When the
+sync changes the list, it then re-runs the whole new list in order — but only *after* the old
+list has already copied the new `docker-compose.yml` and brought it up. Anything that must
+happen **before** the new compose file is first started (minting a secret a new service
+needs, removing a service, renaming an env key, moving state the new file binds) belongs in a
+migration, not in a new ensure-script.
 
 A migration failure aborts the sync. Nothing has been propagated at that point, so the box
 stays on its current version — there is no half-applied state to unwind.

@@ -9,12 +9,17 @@
 # .env beside the deployed copy from the mesh .env. DO NOT edit the deployed copy —
 # it is overwritten on every self-check.
 #
-# SPLIT OUT OF THE MESH STACK, AND ONLY THE PROJECT MOVED. Container names,
-# hostnames, labels, env and every bind-mount path are exactly what they were in
-# the mesh compose file: the data still lives under ${DATA_ROOT}/AppData/mesh/{auth,
-# dex,dex-frontend}, and every other container still reaches these by name on
-# `pcs`. The first `up` of this project evicts the mesh-project containers holding
-# the same names (evict_name_squatters) and recreates them here.
+# SPLIT OUT OF THE MESH STACK. Container names, hostnames, labels and env are
+# exactly what they were in the mesh compose file, and every other container
+# still reaches these by name on `pcs`. The first `up` of this project evicts the
+# mesh-project containers holding the same names (evict_name_squatters) and
+# recreates them here.
+#
+# THE STATE IS IN THIS STACK'S FOLDER: Authelia's in ${DATA_ROOT}/AppData/auth/authelia
+# and Dex's in ${DATA_ROOT}/AppData/auth/dex (its rendered login theme inside it,
+# under frontend/). Until 2026-10-01 both sat in the mesh root (auth/, dex/,
+# dex-frontend/); adopt_auth_state (scripts/library/common.sh) renames them across
+# on a box that still has them there, before this file is brought up.
 #
 # Needs the mesh stack for three things, all by name or by path, none by
 # depends_on (which cannot cross projects): mesh-router-caddy routes auth-${DOMAIN}
@@ -73,16 +78,19 @@ services:
     volumes:
       # config.yaml (rendered) + dex.db (sqlite). This is CACHE, not precious
       # data — see the recovery note in scripts/self-check/ensure-dex.sh.
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex:/data
+      - ${DATA_ROOT:-/DATA}/AppData/auth/dex:/data
       # Custom login frontend, overlaid onto the stock image. ensure-dex.sh (via
       # tools/provision-dex-frontend.sh) renders these from the template's
       # dex-theme/ before the stack comes up. Docker materialises a MISSING
       # bind-mount source as a DIRECTORY, and a directory where login.html
       # belongs breaks `dex` permanently — which is why that tool also runs from
       # ensure-auth-stack.sh.
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/templates/login.html:/srv/dex/web/templates/login.html:ro
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/templates/header.html:/srv/dex/web/templates/header.html:ro
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/dex-frontend/themes/mesh:/srv/dex/web/themes/mesh:ro
+      #
+      # The frontend lives INSIDE the dex data dir (dex/frontend), not beside it:
+      # same owner and lifecycle, and Dex ignores it under /data.
+      - ${DATA_ROOT:-/DATA}/AppData/auth/dex/frontend/templates/login.html:/srv/dex/web/templates/login.html:ro
+      - ${DATA_ROOT:-/DATA}/AppData/auth/dex/frontend/templates/header.html:/srv/dex/web/templates/header.html:ro
+      - ${DATA_ROOT:-/DATA}/AppData/auth/dex/frontend/themes/mesh:/srv/dex/web/themes/mesh:ro
     expose:
       - "5556"   # OIDC web endpoints (Caddy terminates TLS), bound on pcs
       - "5557"   # gRPC client-mgmt API — UNAUTHENTICATED, bound to dex-internal only
@@ -130,7 +138,7 @@ services:
   # login UI at local-auth-${DOMAIN}, which carries the built-in "Reset password?"
   # link and drives the email reset through the smtp relay in the mesh stack.
   # Config + secrets + users_database.yml are provisioned by
-  # scripts/self-check/ensure-authelia.sh into ${DATA_ROOT}/AppData/mesh/auth/.
+  # scripts/self-check/ensure-authelia.sh into ${DATA_ROOT}/AppData/auth/authelia/.
   # =============================================================================
   authelia:
     # NEVER LOWER THIS PIN. Authelia migrates db.sqlite forward on every start and
@@ -153,7 +161,7 @@ services:
     volumes:
       # configuration.yml (rendered) + db.sqlite + users_database.yml + secrets.
       # Unlike the dex dir this holds the local account — back it up.
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/auth:/config
+      - ${DATA_ROOT:-/DATA}/AppData/auth/authelia:/config
     expose:
       - "9091"
     networks:

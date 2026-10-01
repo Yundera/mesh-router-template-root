@@ -80,9 +80,9 @@ fi
 #
 # This is the only hook that can act in the same cycle as the compose swap:
 # self-check.sh runs the script list it read at startup, so an ensure-script
-# added by this release does not run until pass 2 at the earliest (and its
-# declared ordering not until the next cycle). Work that must land alongside the
-# new docker-compose.yml — minting a secret a new service needs, dropping a
+# added by this release does not run until the reconcile pass — after the old
+# list has already brought the new compose file up. Work that must land BEFORE the
+# new docker-compose.yml is first started — minting a secret a new service needs, dropping a
 # removed one, renaming an env key — goes in scripts/migrations/.
 #
 # Running BEFORE the swap is what makes failure cheap: nothing has been

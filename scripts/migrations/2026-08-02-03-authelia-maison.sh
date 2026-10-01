@@ -89,6 +89,9 @@ fi
 # The bridge's signing key, and the disposable Dex break-glass admin that only
 # existed because CasaOS could be unreachable. Authelia is the recovery path now.
 rm -rf "$MESH_ROOT/casaos-oidc-bridge"
-rm -f "$MESH_ROOT/dex/admin-password" "$MESH_ROOT/dex/admin-hash"
+# Both locations: the ensure-dex.sh call above runs adopt_auth_state, which moves
+# dex/ into the auth stack's folder on a box that still has it in the mesh root.
+rm -f "$MESH_ROOT/dex/admin-password" "$MESH_ROOT/dex/admin-hash" \
+      "$DEX_HOME/admin-password" "$DEX_HOME/admin-hash"
 
 echo "Authelia/Maison convergence complete"

@@ -84,6 +84,15 @@ SCRIPTS_DIR="$MESH_ROOT/scripts"
 TEMPLATE_DIR="$MESH_ROOT/template"
 LOG_FILE="${LOG_FILE:-$MESH_ROOT/log/mesh.log}"
 
+# The auth stack's own folder, and the state inside it. Each stack keeps its
+# state in the folder named after it: mesh under $MESH_ROOT/data, auth here.
+# Until 2026-10-01 Authelia's and Dex's state sat in the mesh root (auth/, dex/,
+# dex-frontend/), a leftover from when they were mesh services; adopt_auth_state
+# below moves it. Same layout as Yundera/template-root.
+AUTH_STACK_DIR="${DATA_ROOT:-/DATA}/AppData/auth"
+AUTHELIA_HOME="$AUTH_STACK_DIR/authelia"   # users_database.yml, db.sqlite, configuration.yml, secrets/, oidc/
+DEX_HOME="$AUTH_STACK_DIR/dex"             # dex.db, config.yaml, connectors.d/, frontend/
+
 _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$_COMMON_DIR/log.sh"
@@ -396,4 +405,125 @@ services_handed_over() {
         grep -qx -- "$svc" <<<"$declared" && echo "$svc"
     done
     return 0
+}
+
+# True when <dir> holds at least one file or symlink, at any depth. A tree of
+# empty directories — what a `mkdir -p` or Docker's handling of a missing bind
+# source leaves behind — counts as nothing.
+_state_has_files() {
+    [ -n "$(find "$1" -mindepth 1 \( -type f -o -type l \) -print -quit 2>/dev/null)" ]
+}
+
+# Move Authelia's and Dex's state from the mesh root into the auth stack's folder:
+#
+#   $MESH_ROOT/auth  ->  $AUTHELIA_HOME   (${DATA_ROOT}/AppData/auth/authelia)
+#   $MESH_ROOT/dex   ->  $DEX_HOME        (${DATA_ROOT}/AppData/auth/dex)
+#
+# The rendered login theme ($MESH_ROOT/dex-frontend) is not moved: it is rebuilt
+# from the template on every run, now at $DEX_HOME/frontend, and
+# ensure-auth-stack.sh sweeps the old copy once the stack runs from the new one.
+#
+# THE MOVE IS A RENAME, AND THAT IS WHAT MAKES IT SAFE ON A LIVE BOX. Both sides
+# are on one filesystem, so `mv` changes a name and nothing else: a container
+# still bound to the old path keeps the same directory, because a bind mount
+# holds the inode, not the path. Nothing is stopped. The auth stack deploy that
+# follows recreates the containers on the new path — the same directory again.
+#
+# What an old-bound container must NOT do in between is start again: Docker
+# recreates a missing bind source as an empty directory, so the service would
+# come up on nothing. Hence restart_if_bound below, for the config-reload
+# restarts that sit between the move and the deploy.
+#
+# BOTH OR NEITHER: every pair is checked before anything is touched.
+#
+#   old missing                   nothing to do (fresh box, or moved earlier)
+#   new missing or holds nothing  rename
+#   old holds nothing             an empty leftover — removed
+#   both hold files               refuse (return 1): which one is the box's state
+#                                 is not something to guess at
+#
+# CALLED FROM TWO PLACES, deliberately. scripts/migrations/
+# 2026-10-01-10-move-auth-state-into-auth-folder.sh is the normal path: it runs
+# before the new tree is swapped in, so a failure aborts the sync and the box
+# keeps a tree that still agrees with where the state is. But migrations only run
+# inside ensure-template-sync.sh, which exits at the top on MESH_AUTO_UPDATE=false
+# (every --local install, every pinned box) — so the scripts that read or write
+# this state call it too, and treat a failure as fatal: rendering into, or
+# bringing the stack up on, an empty folder would silently drop the box back to
+# an unclaimed login. One stat per pair when there is nothing to do.
+#
+# ROLLING BACK to a template that predates this makes the old compose file bind
+# the old paths, which Docker then creates EMPTY. Move the two directories back
+# first (doc/alignment-with-template-root.md, "Auth state move").
+#
+# Usage: adopt_auth_state
+adopt_auth_state() {
+    local pairs=("$MESH_ROOT/auth|$AUTHELIA_HOME" "$MESH_ROOT/dex|$DEX_HOME")
+    local pair old new parent
+
+    for pair in "${pairs[@]}"; do
+        old="${pair%%|*}"; new="${pair##*|}"
+        [ -d "$old" ] && [ ! -L "$old" ] || continue
+        _state_has_files "$old" || continue
+        if [ -e "$new" ] && _state_has_files "$new"; then
+            echo "ERROR: both $old and $new hold files - refusing to choose between them."
+            echo "       $new is the current location; if it holds the box's real accounts, move $old aside and re-run."
+            return 1
+        fi
+        # A rename only. Across filesystems `mv` degrades to copy-and-delete, which
+        # would strand the running containers on a directory that no longer exists.
+        parent="$(dirname "$new")"
+        while [ ! -d "$parent" ]; do parent="$(dirname "$parent")"; done
+        if [ "$(stat -c %d "$old")" != "$(stat -c %d "$parent")" ]; then
+            echo "ERROR: $old and $new are on different filesystems - not moving live state by copy"
+            return 1
+        fi
+    done
+
+    for pair in "${pairs[@]}"; do
+        old="${pair%%|*}"; new="${pair##*|}"
+        [ -d "$old" ] && [ ! -L "$old" ] || continue
+        if ! _state_has_files "$old"; then
+            find "$old" -depth -type d -empty -delete 2>/dev/null || true
+            continue
+        fi
+        # Only ever a tree of empty directories here — the check above refused
+        # anything else.
+        if [ -e "$new" ]; then
+            find "$new" -depth -type d -empty -delete 2>/dev/null || true
+        fi
+        mkdir -p "$(dirname "$new")"
+        mv "$old" "$new" || return 1
+        echo "Moved $old to $new"
+    done
+    return 0
+}
+
+# `docker restart <container>`, but only when it already binds <host-dir>.
+# Returns 1 when it did not restart: no such container (cold boot), or one bound
+# somewhere else.
+#
+# For the config-reload restarts in ensure-authelia.sh / ensure-dex.sh. After
+# adopt_auth_state renames a state directory, the running container keeps working
+# on it — a bind mount holds the inode — until the stack deploy recreates it on
+# the new path. STARTING it again in between is what breaks: Docker re-resolves
+# the bind by path, finds nothing, and creates an empty directory there, so the
+# service comes up on no state and leaves a stray directory behind. Such a
+# container is skipped; the deploy that follows picks up whatever the restart
+# was for.
+#
+# Paths are compared with repeated and trailing slashes squeezed out, which is
+# how Docker reports a bind source — so a DATA_ROOT written as `/DATA/` still
+# matches.
+#
+# Usage: restart_if_bound <container> <host-dir>
+restart_if_bound() {
+    local name="$1" dir sources
+    dir="$(printf '%s' "$2" | sed -E 's#/+#/#g; s#(.)/$#\1#')"
+    sources="$(docker container inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$name" 2>/dev/null)" || return 1
+    if ! grep -qxF "$dir" <<<"$sources"; then
+        echo "$name does not bind $dir - not restarting it; the stack deploy recreates it"
+        return 1
+    fi
+    docker restart "$name" >/dev/null 2>&1 || true
 }

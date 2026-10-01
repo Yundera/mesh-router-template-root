@@ -88,8 +88,8 @@ echo "  - $MESH_ROOT"
 # Named explicitly: this IS deleted, and until now the prompt did not say so —
 # it listed $APP_DIR and $MESH_ROOT, which are the same path since phase 3.
 echo "  - ${DATA_ROOT:-/DATA}/AppData/maison (dashboard settings + store cache)"
-echo "  - ${DATA_ROOT:-/DATA}/AppData/auth (the auth stack's generated compose + .env;"
-echo "    the accounts themselves live under $MESH_ROOT)"
+echo "  - ${DATA_ROOT:-/DATA}/AppData/auth (the auth stack: its compose + .env, AND the"
+echo "    local accounts - Authelia's user store and Dex's state)"
 # Only when they differ — phase 3 collapsed APP_DIR into MESH_ROOT, so on a
 # current box printing both would list the same path twice.
 [ "$APP_DIR" != "$MESH_ROOT" ] && echo "  - $APP_DIR"
@@ -183,18 +183,15 @@ rm -rf "$MESH_ROOT"
 # dashboard's own settings/store cache. NOT the sibling ${DATA_ROOT}/AppData/<app>
 # folders: those are user app data and predate this stack.
 rm -rf "${DATA_ROOT:-/DATA}/AppData/maison"
-# The auth stack's directory: only what deploy-stack.sh writes there. Its data
-# (auth/, dex/, dex-frontend/) is under $MESH_ROOT, removed above; anything else
-# someone put in this folder is left, and so is the folder if it is not empty.
-AUTH_DIR="${DATA_ROOT:-/DATA}/AppData/auth"
-if [ -d "$AUTH_DIR" ]; then
-  rm -f "$AUTH_DIR/docker-compose.yml" "$AUTH_DIR/.env" "$AUTH_DIR"/.icon.*
-  rmdir "$AUTH_DIR" 2>/dev/null || true
-fi
+# The auth stack's directory, whole — like maison's. It is the stack's own folder:
+# the generated compose + .env, the console gate's sessions, and since the state
+# move Authelia's user store (authelia/) and Dex's state (dex/) too. A box that
+# never ran the move still has those two under $MESH_ROOT, removed above.
+rm -rf "${DATA_ROOT:-/DATA}/AppData/auth"
 # Name all three. This used to print "$APP_DIR and $MESH_ROOT" — the same value
 # twice once phase 3 collapsed them — and never mentioned the maison directory it
 # had just deleted.
-echo "[OK] Removed $MESH_ROOT, ${DATA_ROOT:-/DATA}/AppData/maison and the auth stack files"
+echo "[OK] Removed $MESH_ROOT, ${DATA_ROOT:-/DATA}/AppData/maison and ${DATA_ROOT:-/DATA}/AppData/auth"
 
 echo ""
 echo "=== Uninstall complete ==="

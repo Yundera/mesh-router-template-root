@@ -10,12 +10,12 @@
 # leaves a directory where a file belongs, and from then on `dex` cannot start
 # at all:
 #
-#   error mounting ".../dex-frontend/templates/login.html" to rootfs at
+#   error mounting ".../dex/frontend/templates/login.html" to rootfs at
 #   "/srv/dex/web/templates/login.html": not a directory
 #
 # Hence: every caller that is about to bring the stack up runs this first. It is
-# idempotent and costs a handful of file copies. ensure-stack-up.sh calls it for
-# the same reason it already clears a stray Caddyfile DIRECTORY.
+# idempotent and costs a handful of file copies. ensure-auth-stack.sh calls it for
+# the same reason ensure-stack-up.sh clears a stray Caddyfile DIRECTORY.
 #
 # A missing source (dex-theme/ absent from the template) is not an error — Dex
 # just keeps its stock UI.
@@ -37,7 +37,14 @@ THEME_SRC="$SELF_TREE/dex-theme"
 # Keep in sync with `frontend.theme` in scripts/self-check/dex.config.yaml.tmpl
 # and the themes/ bind mount in docker-compose.yml.
 THEME_NAME="mesh"
-DEX_FRONTEND="$MESH_ROOT/dex-frontend"
+# Lives INSIDE dex/ rather than beside it: same owner, same lifecycle, same "pure
+# cache" rule as the rest of dex/ (see the RECOVERY note in ensure-dex.sh). The
+# dex container bind-mounts dex/ at /data, so it also sees these files at
+# /data/frontend/ — harmless, Dex reads only /data/config.yaml and /data/dex.db.
+#
+# Was $MESH_ROOT/dex-frontend until the auth state moved into the auth stack's
+# folder; ensure-auth-stack.sh sweeps that copy once the stack runs from this one.
+DEX_FRONTEND="$DEX_HOME/frontend"
 
 if [ ! -d "$THEME_SRC" ]; then
     echo "dex-theme/ not found in template; Dex will use its stock login UI"

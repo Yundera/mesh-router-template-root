@@ -23,6 +23,6 @@ adopt_network dex-internal auth || FAILED=1
 # Never start Authelia on an image older than its database (see
 # authelia_enforce_db_floor in library/common.sh). Against the deployed file, so
 # the pin it checks is the pin that gets started.
-authelia_enforce_db_floor "$DEST_COMPOSE" "$MESH_ROOT/auth" || FAILED=1
+authelia_enforce_db_floor "$DEST_COMPOSE" "$AUTHELIA_HOME" || FAILED=1
 
 exit "$FAILED"

@@ -5,10 +5,11 @@
 # against the NEWLY DOWNLOADED tree, before that tree is swapped into
 # template/ and before anything is propagated to its live location — so a
 # migration can prepare state for a template version that is not on disk yet.
-# That ordering is the whole point of the mechanism: this repo's self-check is
-# single-pass over an in-memory copy of scripts-config.txt, so an ensure-script
-# added by a release does not run until the NEXT cycle. Work that must happen
-# in the same cycle as the compose swap belongs in a migration.
+# That ordering is the whole point of the mechanism: self-check.sh runs its main
+# pass over an in-memory copy of scripts-config.txt, so an ensure-script added by
+# a release only runs in the reconcile pass, after the old list has already
+# brought the new compose file up. Work that must happen BEFORE that first start
+# belongs in a migration.
 #
 # A non-zero exit here aborts the sync. Nothing has been propagated at that
 # point, so the box simply stays on its current version — no restore needed

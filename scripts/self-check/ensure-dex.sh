@@ -9,9 +9,13 @@
 #   - own the sqlite data dir so the dex container (uid 1001) can write dex.db,
 #   - restart dex so a re-rendered config is picked up.
 #
-# Storage layout (host ${DATA_ROOT}/AppData/mesh/):
+# Storage layout (host ${DATA_ROOT}/AppData/auth/ — the auth stack's own folder;
+# adopt_auth_state moves dex/ there from the mesh root on a box that predates
+# the move):
 #   dex/config.yaml          rendered Dex config (re-rendered each run)
+#   dex/connectors.d/*.yaml  drop-in connectors, concatenated into config.yaml
 #   dex/dex.db               Dex sqlite store (clients, codes, refresh tokens, keys)
+#   dex/frontend/            rendered login theme (tools/provision-dex-frontend.sh)
 #
 # RECOVERY / BACKUP: none of this needs backing up — it is all CACHE.
 #   - The auth-registrar (mesh-auth) is STATELESS: its OIDC client-secret cache
@@ -21,8 +25,10 @@
 #   - dex.db is rebuilt automatically on loss. Apps re-register on their next
 #     login (the AppShield sidecars hold no persisted creds), and users simply
 #     log in again (Dex regenerates its signing keys, invalidating old tokens).
-#     Deleting ${DATA_ROOT}/AppData/mesh/dex is therefore safe — this script
+#     Deleting ${DATA_ROOT}/AppData/auth/dex is therefore safe — this script
 #     reconstructs config.yaml and the rest self-heals through normal logins.
+#   - ONE EXCEPTION: connectors.d/ is not cache. It is whatever the deployment
+#     dropped in, and nothing here regenerates it.
 #
 # Dex is a pure BROKER: it holds no local credential. The local account lives in
 # Authelia (see ensure-authelia.sh); the old enablePasswordDB break-glass admin
@@ -42,7 +48,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SELF_DIR/dex.config.yaml.tmpl"
 
-DEX_ROOT="$MESH_ROOT/dex"
+# Fatal, for the same reason as in ensure-authelia.sh (which normally ran first
+# and already did this): never render into an empty folder beside the real state.
+adopt_auth_state
+
+DEX_ROOT="$DEX_HOME"
 CONFIG_OUT="$DEX_ROOT/config.yaml"
 
 # ghcr.io/dexidp/dex runs as uid/gid 1001 and must own its sqlite tree.
@@ -118,7 +128,7 @@ CONNECTOR_COUNT=0
 #
 # Keep this predicate in sync with is_claimed() in tools/authelia-user-manager.sh.
 # ---------------------------------------------------------------------------
-USERS_DB="$MESH_ROOT/auth/users_database.yml"
+USERS_DB="$AUTHELIA_HOME/users_database.yml"
 LOCAL_ACCOUNT_CLAIMED=1
 if [ -f "$USERS_DB" ] && command -v yq >/dev/null 2>&1; then
     if ENABLED="$(yq -e '[.users[] | select(.disabled != true)] | length' "$USERS_DB" 2>/dev/null)"; then
@@ -163,7 +173,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Drop-in connectors — ${DATA_ROOT}/AppData/mesh/dex/connectors.d/*.yaml
+# Drop-in connectors — ${DATA_ROOT}/AppData/auth/dex/connectors.d/*.yaml
 #
 # A generic extension point, deliberately shaped like Authelia's clients.d/*.yml:
 # a deployment can federate Dex to something this template does not ship without
@@ -233,9 +243,9 @@ if [ "$CONNECTOR_COUNT" -eq 0 ]; then
     log_warn "  Fix over SSH: $SCRIPTS_DIR/tools/authelia-user-manager.sh claim <username>"
 fi
 
-# Perms: dex (uid 1001) owns its tree so it can create dex.db.
-# NOTE this covers $DEX_ROOT only, not the sibling dex-frontend/ — those files
-# are bind-mounted :ro and read as world-readable, so they need no ownership.
+# Perms: dex (uid 1001) owns its tree so it can create dex.db. frontend/ inside
+# it is provisioned just below and stays root-owned: those files are bind-mounted
+# :ro and read as world-readable, so they need no ownership.
 chown -R "$DEX_UID:$DEX_UID" "$DEX_ROOT" 2>/dev/null || true
 chmod 755 "$DEX_ROOT" 2>/dev/null || true
 
@@ -243,7 +253,7 @@ chmod 755 "$DEX_ROOT" 2>/dev/null || true
 # over the stock image. Copied every run so template updates propagate.
 #
 # The logic lives in tools/provision-dex-frontend.sh because it is NOT exclusive
-# to this script: ensure-stack-up.sh runs it too, since a `docker compose up`
+# to this script: ensure-auth-stack.sh runs it too, since a `docker compose up`
 # that happens before these files exist makes Docker create the file bind-mount
 # sources as DIRECTORIES and permanently breaks `dex`. See that tool's header.
 "$SCRIPTS_DIR/tools/provision-dex-frontend.sh" \
@@ -251,9 +261,8 @@ chmod 755 "$DEX_ROOT" 2>/dev/null || true
 
 # Pick up the re-rendered config if Dex is already running. A mounted-file change
 # does not trigger a compose recreate, so an explicit restart is needed. Silent
-# on cold boot when the container does not exist yet.
-if docker inspect dex >/dev/null 2>&1; then
-    docker restart dex >/dev/null 2>&1 || true
-fi
+# on cold boot when the container does not exist yet, and skipped for a container
+# still bound to the pre-move directory (see restart_if_bound, library/common.sh).
+restart_if_bound dex "$DEX_ROOT" || true
 
 echo "Dex provisioning complete (data root: $DEX_ROOT)"

@@ -547,6 +547,81 @@ an inert directory. `ensure_pcs_network` creates `pcs` carrying the mesh project
 labels for exactly this case: the old compose declares `pcs` as its own, and compose refuses
 a same-named network whose `com.docker.compose.network` label does not match.
 
+## Auth state move — IMPLEMENTED (unreleased, 2026-10-01)
+
+The split above moved the compose project and left the state in the mesh root. It has now
+followed, to the same layout `Yundera/template-root` adopted the same day — each stack keeps
+its state in the folder named after it:
+
+| Was | Is |
+|---|---|
+| `${DATA_ROOT}/AppData/mesh/auth` | `${DATA_ROOT}/AppData/auth/authelia` |
+| `${DATA_ROOT}/AppData/mesh/dex` | `${DATA_ROOT}/AppData/auth/dex` |
+| `${DATA_ROOT}/AppData/mesh/dex-frontend` | `${DATA_ROOT}/AppData/auth/dex/frontend` (re-rendered, not moved) |
+
+`${DATA_ROOT}/AppData/mesh/data` (certs, Caddy) was already the mesh stack's own and stays.
+
+- **A rename, with nothing stopped.** `adopt_auth_state` (`library/common.sh`) `mv`s the two
+  directories; a container bound to the old path keeps the same inode until the auth deploy
+  recreates it on the new one. Both pairs are checked before either is touched, and it refuses
+  when both sides hold files rather than guessing.
+- **Two callers, deliberately.** `migrations/2026-10-01-10-move-auth-state-into-auth-folder.sh`
+  is the normal path: it fails hard, which aborts the sync with the old tree — still matching
+  the old layout — in place. But migrations never run with `MESH_AUTO_UPDATE=false`, so
+  `ensure-authelia.sh`, `ensure-dex.sh`, `ensure-auth-stack.sh` and `authelia-user-manager.sh`
+  call it too, fatally. That is a departure from `template-root`, which is migration-only: it
+  has no equivalent of a box that takes new scripts without running migrations.
+- **`restart_if_bound`** replaces the bare `docker restart` in `ensure-authelia.sh` and
+  `ensure-dex.sh`. Between the rename and the deploy an old-bound container must not be
+  started again — Docker would recreate the missing bind source as an empty directory.
+- The old `dex-frontend/` is swept by `ensure-auth-stack.sh` once the stack is up on the new
+  theme path. Not by a migration: a one-shot that defers exits 0 and gets its marker anyway.
+- `uninstall.sh` now removes `${DATA_ROOT}/AppData/auth` whole, like `maison/`.
+- **Not done on the `--windows` / `install.ps1` path.** It runs no self-check, so nothing
+  renders Authelia's or Dex's config there in the first place.
+
+**Rolling back** to a template that predates this binds the old paths, which Docker creates
+empty: the box comes up unclaimed while the real state sits in `AppData/auth`. Move it back
+first:
+
+```bash
+M=/DATA/AppData/mesh
+docker rm -f authelia dex
+mv /DATA/AppData/auth/authelia $M/auth
+mv /DATA/AppData/auth/dex      $M/dex
+# then sync the older template and run self-check.sh
+```
+
+## Convergence with `template-root` — script-level, 2026-10-01
+
+Background: `Yundera/template-root` is to stop carrying its own copies of the mesh, auth,
+maison and terminal scripts and run this template's self-check unmodified, adding only what
+is Yundera-specific around it (its `doc/mesh-stock-switch.md`). "Keep the best version of
+both, here" is therefore the rule for anything generic. Done in this pass:
+
+- **`self-check.sh` re-runs the whole list when the sync changed it**, instead of appending
+  the new entries after the old ones. Ordering rules in `scripts-config.txt` now hold on the
+  cycle that first delivers a script. Also from `template-root`: the exec-bit bootstrap before
+  the first script runs, and skipping (not failing) a script the update removed mid-run.
+- **`library/authelia-ready.sh`** (`wait_for_authelia`). `ensure-authelia.sh` now returns only
+  once Authelia serves again, and `ensure-auth-stack.sh` gives Dex one more start, after
+  Authelia answers, whenever the deploy recreated it. Dex opens connectors once, at startup.
+- The state layout above, and `restart_if_bound`.
+
+In the other direction, `template-root` renamed its auth network `yundera-auth` back to
+`dex-internal`, the name used here.
+
+Still only in `template-root`, generic, and worth porting here before the switch (each needs
+a real-box test, which is why they are not in this pass):
+
+| Item | What it is |
+|---|---|
+| Mesh CA + on-box issuer pin | `CA_CERT_PATH` on the agent, `data/ca` mounted into Dex and every gate (`SSL_CERT_DIR`), `extra_hosts: host-gateway`, the `(dex_router*)` Caddy snippets. Stops the box calling its own public URL for OIDC back-channels, and is the real fix for the cold-boot crash loop below. |
+| Local Account back-channel probe | `ensure-dex.sh` renders the connector only when Authelia's discovery document answers on the on-box path. Depends on the CA above. |
+| Reachability-probed public IP | `ensure-public-ip.sh` asks mesh-router-backend's `/probe` before registering an address. The netplan / `ens19` half stays Yundera-only. |
+| auth-console gate as 65534 | plus the `gate-data` chown. It runs as `0:0` here. |
+| `cpu_shares` | on every service. |
+
 ## Open follow-ups
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.

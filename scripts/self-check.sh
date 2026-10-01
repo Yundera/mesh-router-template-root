@@ -51,82 +51,117 @@ if [ ! -f "$SCRIPTS_CONFIG_FILE" ]; then
     exit 1
 fi
 
-# Slurp the script list into memory FIRST, then iterate. This stays
-# deterministic even if ensure-template-sync.sh replaces scripts-config.txt
-# mid-run — a naive `while ... done < file` would keep reading the old inode
-# via its open FD.
+# BOOTSTRAP THE EXEC BITS BEFORE TRUSTING ANY SCRIPT IN THE TREE.
+#
+# ensure-scripts-executable.sh exists to keep this tree executable, and it cannot
+# fix the one case that matters: if the tree arrives mode 644,
+# execute_script_with_logging refuses to run it, so the repair script is itself
+# unrunnable, and so is ensure-template-sync.sh, so no later template can land.
+# We are already running, so we can always restore the bits first. Cheap and
+# idempotent, and it turns a whole class of delivery bug — a sync that loses
+# modes, a bad umask, an archive that drops them — into a self-healing one.
+find "$SELF_DIR" -type f -name '*.sh' -exec chmod +x {} \; 2>/dev/null || true
+
+# Parse scripts-config.txt into the SCRIPTS array (strips comments, empty lines
+# and surrounding whitespace).
 read_scripts_config() {
     local line
+    SCRIPTS=()
     while IFS= read -r line || [ -n "$line" ]; do
         if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "${line// }" ]]; then
             continue
         fi
         line=$(echo "$line" | xargs)
-        [ -n "$line" ] && printf '%s\n' "$line"
-    done < "$1"
+        [ -n "$line" ] && SCRIPTS+=("$line")
+    done < "$SCRIPTS_CONFIG_FILE"
+    return 0
 }
 
-SCRIPTS=()
-while IFS= read -r line; do SCRIPTS+=("$line"); done < <(read_scripts_config "$SCRIPTS_CONFIG_FILE")
+note() {
+    if [ "$DISPLAY_MODE" -eq 1 ]; then
+        log_to_file_only "INFO" "$1"
+    else
+        log "$1"
+    fi
+}
 
 OVERALL_FAILED=0
 FAILED_SCRIPTS=()
-RAN=()
-TOTAL=${#SCRIPTS[@]}
+TOTAL=0
 idx=0
 
-run_one() {
-    local script_name="$1"
-    idx=$((idx + 1))
-    RAN+=("$script_name")
-    if [ "$DISPLAY_MODE" -eq 1 ]; then
-        if ! execute_script_display "$idx" "$TOTAL" "$SELF_DIR/self-check/$script_name"; then
-            OVERALL_FAILED=1
-            FAILED_SCRIPTS+=("$script_name")
+# Run the given list, in order.
+#
+# `tolerate_missing=1` treats a script that is named in the list but absent on
+# disk as a skip rather than a failure: it was retired by a release whose
+# scripts-config.txt landed mid-run. (This repo's sync does not delete files, so
+# it only bites on a tree someone pruned by hand — but the two templates share
+# this runner's logic, and Yundera/template-root's sync does delete.) The
+# reconcile pass below passes 0 instead: it has just re-read the config from
+# disk, so a missing script there means the SHIPPED config names something that
+# does not exist, which is a real error.
+run_scripts() {
+    local tolerate_missing="$1" script_name
+    shift
+    for script_name in "$@"; do
+        idx=$((idx + 1))
+        if [ "$tolerate_missing" = "1" ] && [ ! -f "$SELF_DIR/self-check/$script_name" ]; then
+            note "Skipping $script_name: listed when this run started, no longer on disk"
+            [ "$DISPLAY_MODE" -eq 1 ] && printf '[%2s/%s] %-30s - skipped (removed)\n' "$idx" "$TOTAL" "$script_name"
+            continue
         fi
-    else
-        if ! execute_script_with_logging "$SELF_DIR/self-check/$script_name"; then
-            OVERALL_FAILED=1
-            FAILED_SCRIPTS+=("$script_name")
+        if [ "$DISPLAY_MODE" -eq 1 ]; then
+            if ! execute_script_display "$idx" "$TOTAL" "$SELF_DIR/self-check/$script_name"; then
+                OVERALL_FAILED=1
+                FAILED_SCRIPTS+=("$script_name")
+            fi
+        else
+            if ! execute_script_with_logging "$SELF_DIR/self-check/$script_name"; then
+                OVERALL_FAILED=1
+                FAILED_SCRIPTS+=("$script_name")
+            fi
         fi
-    fi
+    done
 }
 
-for script_name in "${SCRIPTS[@]}"; do
-    run_one "$script_name"
-done
+# Main pass: slurp the script list into memory FIRST, then iterate. This stays
+# deterministic even if ensure-template-sync.sh replaces scripts-config.txt
+# mid-run — a naive `while ... done < file` would keep reading the old inode
+# via its open FD.
+read_scripts_config
+STARTED_WITH=("${SCRIPTS[@]}")
+TOTAL=${#STARTED_WITH[@]}
+run_scripts 1 "${STARTED_WITH[@]}"
 
-# Second pass. ensure-template-sync.sh may have replaced scripts-config.txt (and
-# the scripts themselves) partway through the loop above, which ran the OLD list
-# from memory. Re-read the config and run whatever it now lists that has not run
-# yet, so a release that ADDS an ensure-script converges in this cycle instead of
-# the next one — otherwise the new docker-compose.yml is already up while the
-# script that provisions what it needs is still a night away.
+# Reconcile pass. ensure-template-sync.sh may have replaced scripts-config.txt
+# (and the scripts themselves) during the main pass, which ran the OLD list from
+# memory. When the list changed, re-run the WHOLE list in its configured order.
 #
-# Entries are matched by name, so a script both lists run exactly once. Newly
-# added scripts run after the existing ones regardless of where they sit in the
-# file; their declared order only takes effect from the next cycle. Anything
-# order-critical within the same cycle belongs in scripts/migrations/, which runs
-# before the new tree is even swapped in.
-NEW_SCRIPTS=()
-while IFS= read -r line; do
-    for already in "${RAN[@]}"; do
-        [ "$line" = "$already" ] && continue 2
-    done
-    NEW_SCRIPTS+=("$line")
-done < <(read_scripts_config "$SCRIPTS_CONFIG_FILE")
-
-if [ "${#NEW_SCRIPTS[@]}" -gt 0 ]; then
-    TOTAL=$((idx + ${#NEW_SCRIPTS[@]}))
-    MSG="Template sync added ${#NEW_SCRIPTS[@]} script(s); running them now: ${NEW_SCRIPTS[*]}"
-    if [ "$DISPLAY_MODE" -eq 1 ]; then
-        log_to_file_only "INFO" "$MSG"
-    else
-        log "$MSG"
-    fi
-    for script_name in "${NEW_SCRIPTS[@]}"; do
-        run_one "$script_name"
-    done
+# This used to append only the entries the main pass had not run. That converged
+# in one cycle, but a newly delivered script then ran after every pre-existing
+# one — so each ordering rule in scripts-config.txt was false on exactly the
+# cycle that mattered, the one that first delivers the script, and scripts had to
+# compensate one by one (re-invoking the peers they had just invalidated).
+# Yundera/template-root hit the same thing and fixed it here once; this is that
+# fix, so the two runners behave alike.
+#
+# Re-running everything is safe by construction: these scripts are convergent
+# reconcilers, that being the premise of the self-check. It costs one slow cycle,
+# only on the rare run that changes the list. Work that must land BEFORE the new
+# compose file is first brought up still belongs in scripts/migrations/, which
+# runs before the new tree is even swapped in.
+read_scripts_config
+if [ "${SCRIPTS[*]}" != "${STARTED_WITH[*]}" ]; then
+    note "scripts-config.txt changed during this run - re-running the full list in its configured order"
+    [ "$DISPLAY_MODE" -eq 1 ] && printf '\nThe update changed the step list - running it again in order:\n'
+    # The complete second pass is the authoritative verdict: a script that failed
+    # above only because its dependency had not run yet gets its real answer
+    # here, and reporting the stale failure too would be noise.
+    OVERALL_FAILED=0
+    FAILED_SCRIPTS=()
+    idx=0
+    TOTAL=${#SCRIPTS[@]}
+    run_scripts 0 "${SCRIPTS[@]}"
 fi
 
 if [ "$DISPLAY_MODE" -eq 1 ]; then

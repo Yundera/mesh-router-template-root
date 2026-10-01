@@ -48,9 +48,9 @@ set -euo pipefail
 MESH_ROOT=/DATA/AppData/mesh
 SCRIPTS="$MESH_ROOT/scripts"
 AUTH_DIR=/DATA/AppData/.demo-auth
-CONNECTORS_D="$MESH_ROOT/dex/connectors.d"
+CONNECTORS_D="/DATA/AppData/auth/dex/connectors.d"
 DROPIN="$CONNECTORS_D/demo-open-entry.yaml"
-USERS_DB="$MESH_ROOT/auth/users_database.yml"
+USERS_DB="/DATA/AppData/auth/authelia/users_database.yml"
 
 echo "=== Open Entry: starting ==="
 
@@ -260,7 +260,7 @@ The self-check preserves all of this. On the next cycle it logs:
 ```
 Local account is unclaimed; omitting the Local Account connector until it is claimed
 Added drop-in Dex connector from demo-open-entry.yaml
-Rendered Dex config at /DATA/AppData/mesh/dex/config.yaml (1 connector(s))
+Rendered Dex config at /DATA/AppData/auth/dex/config.yaml (1 connector(s))
 ```
 
 `connectors.d/` lives in the runtime data dir, so `ensure-template-sync.sh` never
@@ -270,10 +270,10 @@ touches it; and `ensure-authelia.sh`'s already-seeded branch only ever rewrites
 ## Undoing it
 
 ```bash
-rm -f /DATA/AppData/mesh/dex/connectors.d/demo-open-entry.yaml
+rm -f /DATA/AppData/auth/dex/connectors.d/demo-open-entry.yaml
 docker compose -f /DATA/AppData/.demo-auth/docker-compose.yml down
 rm -rf /DATA/AppData/.demo-auth
-yq -i '.users.admin.disabled = false' /DATA/AppData/mesh/auth/users_database.yml
+yq -i '.users.admin.disabled = false' /DATA/AppData/auth/authelia/users_database.yml
 docker restart authelia
 bash /DATA/AppData/mesh/scripts/self-check/ensure-dex.sh
 ```
@@ -298,7 +298,7 @@ verifies Dex actually came back and removes its own drop-in when it did not.
 Recovery, over SSH:
 
 ```bash
-rm -f /DATA/AppData/mesh/dex/connectors.d/demo-open-entry.yaml
+rm -f /DATA/AppData/auth/dex/connectors.d/demo-open-entry.yaml
 bash /DATA/AppData/mesh/scripts/self-check/ensure-dex.sh
 ```
 
