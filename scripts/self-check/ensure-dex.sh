@@ -168,6 +168,49 @@ if [ "$LOCAL_ACCOUNT_CLAIMED" = "1" ]; then
         - groups
 YAML
     CONNECTOR_COUNT=$((CONNECTOR_COUNT + 1))
+
+    # Check the path Dex will take to open that connector, and say so when it is
+    # broken. Dex reaches local-auth-${DOMAIN} ON THE BOX — extra_hosts pins the
+    # name to this host's :443, i.e. mesh-router-caddy, and SSL_CERT_DIR makes it
+    # trust the mesh CA (stacks/auth/docker-compose.yml). This is the same
+    # request from the host: same port, same certificate, same CA file.
+    #
+    # A WARNING ONLY — the connector is rendered either way. Yundera/template-root
+    # omits it when this probe fails, which is right there (a second connector is
+    # normally present) and wrong here: Local Account is usually this box's ONLY
+    # connector, so omitting it would trade a login that may not work for a login
+    # page with no button at all. The point is a log line that names the cause
+    # instead of a Dex that silently dropped its connector.
+    #
+    # Skipped when Authelia is not running yet (cold boot: nothing to probe) or
+    # when curl is missing.
+    MESH_CA="$MESH_ROOT/data/ca/ca-cert.pem"
+    # On the run that first delivers data/ca the file is still beside the key:
+    # ensure-stack-up.sh, later in the list, is what moves it. Same CA either way.
+    [ -s "$MESH_CA" ] || [ ! -s "$MESH_ROOT/data/certs/ca-cert.pem" ] || MESH_CA="$MESH_ROOT/data/certs/ca-cert.pem"
+    if command -v curl >/dev/null 2>&1 \
+        && [ "$(docker inspect -f '{{.State.Running}}' authelia 2>/dev/null)" = "true" ]; then
+        if [ ! -s "$MESH_CA" ]; then
+            log_warn "The mesh CA is not at $MESH_CA yet; Dex cannot verify local-auth-$DOMAIN on the box until mesh-router-agent writes it"
+        else
+            PROBE_OK=0
+            for _ in 1 2 3; do
+                if curl -sS --max-time 10 \
+                        --resolve "local-auth-$DOMAIN:443:127.0.0.1" --cacert "$MESH_CA" \
+                        "https://local-auth-$DOMAIN/.well-known/openid-configuration" 2>/dev/null \
+                        | grep -q '"issuer"'; then
+                    PROBE_OK=1
+                    break
+                fi
+                sleep 3
+            done
+            if [ "$PROBE_OK" != "1" ]; then
+                log_warn "local-auth-$DOMAIN did not return a discovery document over the on-box path (127.0.0.1:443, mesh CA)"
+                log_warn "  Dex may fail to open the Local Account connector. Check that authelia is up and that"
+                log_warn "  mesh-router-caddy serves local-auth-$DOMAIN with the mesh certificate."
+            fi
+        fi
+    fi
 else
     log_info "Local account is unclaimed; omitting the Local Account connector until it is claimed"
 fi

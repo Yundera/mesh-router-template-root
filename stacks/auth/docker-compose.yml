@@ -21,9 +21,11 @@
 # dex-frontend/); adopt_auth_state (scripts/library/common.sh) renames them across
 # on a box that still has them there, before this file is brought up.
 #
-# Needs the mesh stack for three things, all by name or by path, none by
+# Needs the mesh stack for four things, all by name or by path, none by
 # depends_on (which cannot cross projects): mesh-router-caddy routes auth-${DOMAIN}
-# and local-auth-${DOMAIN}, smtp relays Authelia's password-reset mail, and the
+# and local-auth-${DOMAIN} (and is what the on-box issuer pins terminate on),
+# mesh-router-agent writes the mesh CA Dex and the console gate trust
+# (${DATA_ROOT}/AppData/mesh/data/ca), smtp relays Authelia's password-reset mail, and the
 # `pcs` network — external here as in every stack — is created before either
 # stack comes up (ensure_pcs_network).
 #
@@ -70,12 +72,38 @@ services:
       # Turning it on gives Dex a real `dex_session` browser cookie, which is
       # what makes it an OP you can log out of.
       DEX_SESSIONS_ENABLED: "true"
-    # If a connector's issuer is NOT served with a publicly-trusted cert (e.g. an
-    # internal-CA-only test host), Dex's back-channel TLS to it will fail; in
-    # that case ensure-dex.sh writes a CA bundle and you add:
-    #     SSL_CERT_FILE: /data/ca-bundle.crt
-    # to the environment block above.
+      # Trust the mesh CA IN ADDITION TO the image's public bundle. The Local
+      # Account connector's issuer is pinned on-box (extra_hosts below), where
+      # TLS is the mesh certificate Caddy serves through `gateway_tls`, not a
+      # publicly-trusted one.
+      #
+      # SSL_CERT_DIR and NOT SSL_CERT_FILE: Go keeps its certFiles and replaces
+      # only certDirectories, so a directory ADDS roots while SSL_CERT_FILE would
+      # REPLACE the image's bundle — and a drop-in connector whose issuer is
+      # genuinely off-box still needs the public roots.
+      #
+      # Relies on the image keeping a bundle at one of Go's default certFiles
+      # paths. Verified for the digest pinned above:
+      # /etc/ssl/certs/ca-certificates.crt. RE-VERIFY ON REPIN.
+      SSL_CERT_DIR: "/ca"
+    # KEEP THE CONNECTOR BACK-CHANNEL ON THE BOX. ensure-dex.sh renders the Local
+    # Account connector with `issuer: https://local-auth-${DOMAIN}`, and Dex does
+    # discovery, the code exchange and the key fetch against that public
+    # hostname. Resolved publicly, those calls leave the box, cross the gateway
+    # and re-enter this same machine — so Dex could not open the connector until
+    # the public route was registered (the cold-boot crash loop), and login
+    # depended on a path that has nothing to do with this box's own health.
+    #
+    # The issuer STRING does not change, so Authelia's discovery document still
+    # matches and every redirect the browser sees is unchanged. Only the lookup
+    # moves. Plain HTTP is not an alternative: the scheme is part of the issuer.
+    extra_hosts:
+      - "local-auth-${DOMAIN}:host-gateway"
     volumes:
+      # The mesh CA that SSL_CERT_DIR points at — written there by
+      # mesh-router-agent (CA_CERT_PATH, mesh stack), in a directory of its own so
+      # the mesh private key never travels with it.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
       # config.yaml (rendered) + dex.db (sqlite). This is CACHE, not precious
       # data — see the recovery note in scripts/self-check/ensure-dex.sh.
       - ${DATA_ROOT:-/DATA}/AppData/auth/dex:/data
@@ -297,8 +325,14 @@ services:
       IDENTITY_ASSERTION_SECRET: "${AUTH_CONSOLE_ASSERTION_SECRET}"
       # The only path that answers without a login: a liveness probe, no data.
       ALLOWED_PATHS: "api/health"
+      # Trust the mesh CA for the on-box call to Dex — see the mesh-console gate
+      # in the mesh stack's docker-compose.yml for the full reasoning.
+      SSL_CERT_DIR: "/ca"
+    extra_hosts:
+      - "auth-${DOMAIN}:host-gateway"
     volumes:
       - ${DATA_ROOT:-/DATA}/AppData/auth/auth-console/gate-data:/data
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
     depends_on:
       - auth-console-app
       - auth-registrar

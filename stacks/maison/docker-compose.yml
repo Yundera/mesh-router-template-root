@@ -92,7 +92,13 @@ services:
       # already shows. Bypassed requests still have every identity header stripped
       # (AppShield router.go), so this cannot be used to forge a user.
       ALLOWED_PATHS: "manifest.webmanifest,icons"
+      # Trust the mesh CA for the on-box call to Dex — see the mesh-console gate
+      # in the mesh stack's docker-compose.yml for the full reasoning.
+      SSL_CERT_DIR: "/ca"
+    extra_hosts:
+      - "auth-${DOMAIN}:host-gateway"
     volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
       # Gate state under /data: persisted login sessions (sessions.json, AppShield
       # >= 2.0.6) and the MCP OAuth provider state. Without this mount a container
       # recreate logs everyone out regardless of SESSION_DURATION_HOURS.

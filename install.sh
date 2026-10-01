@@ -476,6 +476,7 @@ fi
 echo "[..] Creating directories..."
 mkdir -p "$APP_DIR" "$DATA_ROOT" \
   "$MESH_ROOT/data/certs" \
+  "$MESH_ROOT/data/ca" \
   "$MESH_ROOT/data/caddy/data" \
   "$MESH_ROOT/data/caddy/config" \
   "$MESH_ROOT/log" \

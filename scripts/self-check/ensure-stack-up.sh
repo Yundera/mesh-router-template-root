@@ -38,6 +38,41 @@ fi
 # The Dex login-theme files and the Authelia pin check that used to sit here moved
 # to ensure-auth-stack.sh with the services they protect.
 
+# THE MESH CA LIVES IN data/ca, ALONE. Dex and every first-party gate mount that
+# directory read-only to trust the certificate Caddy serves on the on-box path
+# (see CA_CERT_PATH on mesh-router-agent in docker-compose.yml). Before that
+# variable existed the agent wrote the CA beside the private key, in data/certs.
+#
+# MOVED, not copied: one CA file, and the agent its only writer. A copy would
+# leave a second file that nothing updates and that goes stale silently on the
+# next CA change. Not a symlink either — the containers mount data/ca alone, so
+# a link into data/certs would dangle inside them.
+#
+# Before `up`, so the CA is already in place when anything that trusts it starts:
+# the agent only writes it once it has reached the backend, and the gates in this
+# same compose file would otherwise come up beside an empty directory.
+#
+# Nothing depends on the old copy. The agent requests a fresh certificate at
+# every start and rewrites all three files, the CA at CA_CERT_PATH — so the moved
+# file is refreshed in place seconds later, and a box rolled back to a compose
+# file without CA_CERT_PATH simply gets data/certs/ca-cert.pem written again.
+#
+# Only when the compose file about to be brought up actually sets CA_CERT_PATH:
+# with a hand-kept older file (MESH_AUTO_UPDATE=false) the agent still writes
+# data/certs and nothing mounts data/ca.
+MESH_CA_DIR="$MESH_ROOT/data/ca"
+LEGACY_CA="$MESH_ROOT/data/certs/ca-cert.pem"
+if grep -q 'CA_CERT_PATH' "$APP_DIR/docker-compose.yml"; then
+    mkdir -p "$MESH_CA_DIR"
+    if [ -s "$MESH_CA_DIR/ca-cert.pem" ]; then
+        if [ -e "$LEGACY_CA" ]; then
+            rm -f "$LEGACY_CA" && echo "Removed stale $LEGACY_CA (the mesh CA is $MESH_CA_DIR/ca-cert.pem)"
+        fi
+    elif [ -s "$LEGACY_CA" ]; then
+        mv -f "$LEGACY_CA" "$MESH_CA_DIR/ca-cert.pem" && echo "Moved the mesh CA to $MESH_CA_DIR/ca-cert.pem"
+    fi
+fi
+
 FAILED=0
 
 # Mesh Console (mesh-console / mesh-console-app): the gate signs an identity
@@ -92,6 +127,20 @@ if wait_stack_settled 90 15; then
     echo "Stack is up"
 else
     FAILED=1
+fi
+
+# On a fresh box there was no CA to move: the agent fetches its certificate once
+# it is up and writes the CA then. The auth stack is next and Dex needs that file
+# to open the Local Account connector, so give the agent a moment. A warning, not
+# a failure: a box whose agent cannot reach the backend has no certificate at
+# all, which the verification steps at the end of the list report on their own.
+if grep -q 'CA_CERT_PATH' "$APP_DIR/docker-compose.yml"; then
+    for _ in $(seq 1 15); do
+        [ -s "$MESH_CA_DIR/ca-cert.pem" ] && break
+        sleep 2
+    done
+    [ -s "$MESH_CA_DIR/ca-cert.pem" ] \
+        || echo "WARN: mesh-router-agent has not written $MESH_CA_DIR/ca-cert.pem yet - on-box login calls (Dex, the gates) cannot verify TLS until it does"
 fi
 
 exit "$FAILED"

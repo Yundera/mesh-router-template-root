@@ -616,18 +616,53 @@ a real-box test, which is why they are not in this pass):
 
 | Item | What it is |
 |---|---|
-| Mesh CA + on-box issuer pin | `CA_CERT_PATH` on the agent, `data/ca` mounted into Dex and every gate (`SSL_CERT_DIR`), `extra_hosts: host-gateway`, the `(dex_router*)` Caddy snippets. Stops the box calling its own public URL for OIDC back-channels, and is the real fix for the cold-boot crash loop below. |
-| Local Account back-channel probe | `ensure-dex.sh` renders the connector only when Authelia's discovery document answers on the on-box path. Depends on the CA above. |
 | Reachability-probed public IP | `ensure-public-ip.sh` asks mesh-router-backend's `/probe` before registering an address. The netplan / `ens19` half stays Yundera-only. |
 | auth-console gate as 65534 | plus the `gate-data` chown. It runs as `0:0` here. |
 | `cpu_shares` | on every service. |
+
+## Mesh CA and on-box issuer pins — IMPLEMENTED (unreleased, 2026-10-01)
+
+Ported from `template-root`. Dex's calls to Authelia (`local-auth-${DOMAIN}`) and every
+first-party gate's calls to Dex (`auth-${DOMAIN}`) used to resolve those names publicly: out
+through the gateway and back into the same machine. They now stay on the box.
+
+- **The pin.** `extra_hosts: "<host>:host-gateway"` on Dex and on the mesh-console,
+  auth-console and Maison gates. The issuer string is unchanged; only the lookup moves, to
+  this host's `:443`, which is mesh-router-caddy.
+- **The trust.** On that path Caddy serves the mesh certificate (`gateway_tls`), so those
+  containers get `SSL_CERT_DIR=/ca` and a read-only mount of `data/ca`. A directory adds
+  roots to the image's bundle; `SSL_CERT_FILE` would replace it.
+- **The CA in its own folder.** `CA_CERT_PATH=/app/ca/ca-cert.pem` on the agent, so the mount
+  never carries `key.pem`. Without it the agent writes the CA beside the key.
+- **Moved, not copied.** `ensure-stack-up.sh` moves `data/certs/ca-cert.pem` to
+  `data/ca/ca-cert.pem` before `up` — one CA file, the agent its only writer — and only when
+  the compose file about to start sets `CA_CERT_PATH`. The agent requests a fresh certificate
+  at every start and rewrites the CA at that path, so the moved file is refreshed in place and
+  a rolled-back agent just writes `data/certs/ca-cert.pem` again.
+- **The probe is a warning here.** `ensure-dex.sh` checks Authelia's discovery document over
+  the on-box path and logs when it fails, but renders the Local Account connector either way.
+  `template-root` omits the connector instead, which suits a box that normally has a second
+  one; here it is usually the only one.
+- Not ported: the `(dex_router*)` Caddy snippets. They move Dex's TLS choice and upstream
+  from labels into the Caddyfile and change nothing about the path.
+- Not covered: the Terminal gate (a copy of the store app, on both templates), and store apps
+  in general. A new CA reaches the file at the next agent start, but Dex and the gates would
+  need a restart to load it — Go reads its roots once.
+
+Tested on watch.nsl.sh 2026-10-01 from the working tree (`file://` tarball), two runs, 19/19:
+the CA moved, Dex opened the Local Account connector over the pinned path, and all three
+gates registered and redirected to Dex. A browser login end to end was not done.
+
+This is the real fix for the cold-boot crash loop listed below: Dex no longer needs the public
+route to be registered to open its connector.
 
 ## Open follow-ups
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.
 - ~~`uninstall.sh` removes a stale container list.~~ **Done** with phases 1+2 — it now
   runs `docker compose down --remove-orphans -v` against both project directories.
-- **Dex cold-boot crash loop.** On a fresh install Dex validates its connector's issuer over
+- ~~**Dex cold-boot crash loop.**~~ **Addressed** by the on-box issuer pin above (to confirm
+  on a fresh install). Was: on a fresh install Dex validates its connector's issuer over
   the *public* gateway before `ensure-route-registered.sh` has run, gets
   `502 {"error":"No routes available"}` and exits; `restart: unless-stopped` recovers it a
   few seconds later. Cosmetic but alarming in logs. Phase 1 does not fix it — Authelia's

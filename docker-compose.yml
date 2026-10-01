@@ -55,8 +55,23 @@ services:
       # Dual-port support for transparent HTTP/HTTPS routing
       - TARGET_PORT_HTTPS=443
       - TARGET_PORT_HTTP=80
+      # THE CA GOES IN ITS OWN DIRECTORY, AWAY FROM THE KEY. The agent writes three
+      # files: key.pem, cert.pem and the mesh CA. Caddy needs the first two. The
+      # third is read by Dex and by every first-party gate, which reach
+      # auth-${DOMAIN} / local-auth-${DOMAIN} on the box (see the extra_hosts note
+      # on the mesh-console gate below) and must trust the certificate Caddy
+      # serves there.
+      #
+      # A CA certificate is public; key.pem is not, and mounting data/certs into
+      # those containers would hand them both. Without this variable the agent
+      # writes the CA beside the key (data/certs/ca-cert.pem); ensure-stack-up.sh
+      # MOVES that file here on a box that predates this, so there is one CA file
+      # and the agent is its only writer.
+      - CA_CERT_PATH=/app/ca/ca-cert.pem
     volumes:
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/certs:/app/data
+      # Read-write: this is where the agent WRITES the CA, per CA_CERT_PATH above.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/app/ca
     networks:
       pcs: null
 
@@ -173,8 +188,34 @@ services:
       IDENTITY_ASSERTION_SECRET: "${MESH_CONSOLE_ASSERTION_SECRET}"
       # The only path that answers without a login: a liveness probe, no data.
       ALLOWED_PATHS: "api/health"
+      # KEEP THE OIDC BACK-CHANNEL ON THE BOX. The gate does discovery, the code
+      # exchange and the key fetch against the issuer, https://auth-${DOMAIN} — a
+      # PUBLIC hostname. Resolved publicly, those server-to-server calls leave the
+      # box, cross the gateway, and re-enter this same machine; login then depends
+      # on the public route being up, registered and healthy. The extra_hosts pin
+      # below resolves that one name to this host's own :443 (mesh-router-caddy),
+      # where TLS is the mesh certificate — signed by the mesh CA, not a public
+      # one — so the gate has to trust that CA.
+      #
+      # SSL_CERT_DIR and NOT SSL_CERT_FILE: Go keeps its certFiles and replaces only
+      # certDirectories, so a directory ADDS the mesh CA to the image's public
+      # bundle, where SSL_CERT_FILE would replace the bundle outright. Relies on
+      # the image keeping its bundle at one of Go's default certFiles paths —
+      # re-verify when the appshield pin moves.
+      SSL_CERT_DIR: "/ca"
+    # The issuer STRING does not change — tokens, redirects and what the browser
+    # resolves are all as before. Only this container's lookup moves. This trio
+    # (extra_hosts + SSL_CERT_DIR + the /ca mount) is the same on every first-party
+    # gate; keep them in step.
+    extra_hosts:
+      - "auth-${DOMAIN}:host-gateway"
     volumes:
       - ${DATA_ROOT:-/DATA}/AppData/mesh/mesh-console/gate-data:/data
+      # The mesh CA that SSL_CERT_DIR points at. mesh-router-agent writes it there
+      # (CA_CERT_PATH, mesh stack), in a directory of its own so the mesh private
+      # key never travels with it. An empty directory is survivable: the image's
+      # own bundle still loads, only the pinned on-box call fails.
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
     # Not auth-registrar: it is in the auth stack now, and depends_on cannot name
     # another project's service. Nothing is lost — the gate registers on first
     # login, not at start, and retries then.
