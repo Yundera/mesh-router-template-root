@@ -375,6 +375,11 @@ knowing:
   one keypress.
 - **Pass `--domain` / `--provider` to change identity.** That is a deliberate change and
   skips the confirmation.
+- **An update does not take the box offline.** The Linux installer stops the mesh stack
+  only when the identity changes (`--domain` / `--provider` naming a different value) or
+  with `--clean-restart`; a plain update lets the self-check recreate just the services
+  whose definition changed, the way the nightly sync does. This is also how an operator
+  adopts an existing box onto this template without an outage.
 - **Non-interactive runs proceed without asking** (`--yes` / `-Yes`, or no usable terminal —
   cron, CI, a `curl | bash` under systemd). The configuration came off the box's own disk,
   so there is nothing to confirm against.
@@ -463,6 +468,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs. Update such a box by re-running `install.sh` with no arguments (see [Manual update](#manual-update-installsh-with-no-arguments)) |
 | `UPDATE_URL` | stable branch tarball | **Full** URL the nightly sync pulls from. Set at install via `--channel` / `--update-url`. Must be `.tar.gz` |
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
+| `EMAIL_SYNC` | `true` | Set `false` when `EMAIL` is provisioned by an operator rather than looked up from the mesh backend: `ensure-email-synced.sh` then leaves it alone |
 | `MESH_UPDATE_CHANNEL` / `MESH_TEMPLATE_URL` | _(unset)_ | **Deprecated** pre-rename keys, still read as fallbacks for one release. Migrated to `UPDATE_URL` automatically |
 | `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
 | `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |

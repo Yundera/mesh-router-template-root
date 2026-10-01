@@ -14,6 +14,16 @@ set -e
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 
+# EMAIL_SYNC=false hands EMAIL to whoever runs this box: an operator that
+# provisions the address itself (a Yundera PCS, where the orchestrator's value is
+# authoritative) would otherwise see the two sources overwrite each other on
+# every run, recreating the stack each time they disagree.
+case "${EMAIL_SYNC:-true}" in
+    false|0|off|no|disabled)
+        echo "EMAIL_SYNC=${EMAIL_SYNC}; EMAIL is managed outside this template, skipping email sync"
+        exit 0 ;;
+esac
+
 if [ -z "${PROVIDER_STR:-}" ]; then
     echo "PROVIDER_STR not set; skipping email sync"
     exit 0

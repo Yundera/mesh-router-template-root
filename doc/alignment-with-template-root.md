@@ -717,9 +717,16 @@ has the whole picture).
   own from then on.
 - **Each template updates itself from its own channel**, so `stable` here reaches PCS boxes
   without a `template-root` release.
-- **Open: `EMAIL`.** On a PCS the orchestrator's value is authoritative, while
-  `ensure-email-synced.sh` writes the backend's. Whether that is settled at the source, by a
-  key that turns the sync off, or left to the two runs is not decided.
+- **`EMAIL`: `EMAIL_SYNC=false`.** On a PCS the orchestrator's value is authoritative, so the
+  Yundera layer sets `EMAIL_SYNC=false` and upserts `EMAIL` itself; `ensure-email-synced.sh`
+  then leaves the key alone. Generic: any operator-provisioned box wants the same knob.
+- **A provider string may contain `@`.** A Yundera PCS's user id is `<uid>@yundera.com`, and
+  `install.sh`'s allowlist used to reject it — every PCS install would have failed. Its error
+  output now redacts the signature as well: an operator running the installer from its own
+  self-check keeps that output in a log.
+- **Adoption is `install.sh`, with no outage.** The installer takes the mesh stack down only
+  on an identity change or `--clean-restart`; a plain re-run — which is how an existing PCS
+  adopts this tree — lets the self-check recreate the changed services in place.
 
 ## Open follow-ups
 

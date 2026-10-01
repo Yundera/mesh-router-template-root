@@ -60,6 +60,7 @@ CLAIM_USER=""
 CLAIM_PASSWORD=""
 CLAIM_GENERATE=false
 ASSUME_YES=false
+CLEAN_RESTART=false
 
 usage() {
   cat <<EOF
@@ -99,6 +100,9 @@ Onboarding (the local login for this box):
                 is available; a re-run that finds the box already claimed asks
                 nothing.
   --generate    Mint a random password and print it once instead of asking.
+  --clean-restart
+                Take the stack down before the self-check even when the
+                identity is unchanged (a domain or provider change always does).
   --yes, -y     Never prompt. With no credentials given, the box is left
                 UNCLAIMED and you claim it later over SSH with
                 scripts/tools/authelia-user-manager.sh claim <username>.
@@ -130,6 +134,7 @@ while [[ $# -gt 0 ]]; do
     --claim-user)     need_value "$@"; CLAIM_USER="$2"; shift 2 ;;
     --claim-password) need_value "$@"; CLAIM_PASSWORD="$2"; shift 2 ;;
     --generate)  CLAIM_GENERATE=true; shift ;;
+    --clean-restart) CLEAN_RESTART=true; shift ;;
     --yes|-y)    ASSUME_YES=true; shift ;;
     --help)      usage ;;
     *)           echo "Unknown option: $1"; usage ;;
@@ -258,6 +263,11 @@ prompt_secret() {
 PROVIDER_ARG="$PROVIDER_STR"
 DOMAIN_ARG="$DOMAIN"
 
+# The identity this box ran with before this run, so the teardown below can tell
+# an identity change (which needs it) from a plain update (which does not).
+PREV_PROVIDER_STR="$(env_get PROVIDER_STR)"
+PREV_DOMAIN="$(env_get DOMAIN)"
+
 # Apply the ladder: explicit flag > value already in .env > default.
 [[ -n "$PROVIDER_STR" ]] || PROVIDER_STR="$(env_get PROVIDER_STR)"
 [[ -n "$DOMAIN"       ]] || DOMAIN="$(env_get DOMAIN)"
@@ -308,8 +318,16 @@ fi
 die_bad_arg() {
   # $1 = arg name, $2 = bad value, rest = explanation lines
   local name="$1" value="$2"; shift 2
+  # The provider string's third field is a credential, and this output lands in
+  # logs (an operator running the installer from its own self-check keeps it).
+  # Never print it whole; the rest of the string is what a reader needs.
+  local shown="$value" _url="" _uid="" _sig=""
+  if [[ "$name" == provider ]]; then
+    IFS=',' read -r _url _uid _sig <<<"$value"
+    [[ -n "$_sig" ]] && shown="${_url},${_uid},${_sig:0:4}…(hidden)"
+  fi
   echo "Error: --${name} is invalid." >&2
-  echo "       Got: ${value}" >&2
+  echo "       Got: ${shown}" >&2
   local line
   for line in "$@"; do echo "       ${line}" >&2; done
   # Say where the bad value came from. On an argument-less update it was read
@@ -333,9 +351,10 @@ die_bad_arg() {
 }
 
 # PROVIDER_STR must be exactly: backend_url,userid,signature
-# Allowlist the characters real values use (URL + base58/base64/hex); anything
-# else (angle brackets, spaces, quotes, $, backticks, ...) is rejected.
-if [[ ! "$PROVIDER_STR" =~ ^[A-Za-z0-9._:/,+=-]+$ ]]; then
+# Allowlist the characters real values use (URL + base58/base64/hex, and `@`,
+# which operator-issued user ids carry — a Yundera PCS's is `<uid>@yundera.com`);
+# anything else (angle brackets, spaces, quotes, $, backticks, ...) is rejected.
+if [[ ! "$PROVIDER_STR" =~ ^[A-Za-z0-9._:/,+=@-]+$ ]]; then
   die_bad_arg provider "$PROVIDER_STR" \
     "Expected: backend_url,userid,signature" \
     "It contains characters that aren't valid in a provider string."
@@ -692,16 +711,27 @@ sed -i -E '/^MESH_UPDATE_CHANNEL=/d' "$ENV_FILE"
 [[ -n "$PUBLIC_IP" ]] && env_set PUBLIC_IP "$PUBLIC_IP"
 echo "[OK] .env written"
 
-# Force a clean down before the self-check brings the stack back up. install.sh
-# is user-triggered (manual install/update), so a brief full outage is fine, and
-# a clean teardown is the only reliable way to apply an identity change (new
-# domain/provider): an in-place `up -d` — what the nightly self-check does — can
-# leave stale WireGuard/network state and a stale caddy config behind, which
-# surfaces as a 502 on the tunnel path. ensure-stack-up brings it back up next.
+# Take the stack down before the self-check brings it back up — but only when
+# the IDENTITY changed (new domain or provider), or on --clean-restart. That is
+# the one case an in-place `up -d` — what the nightly self-check does — cannot
+# apply cleanly: it can leave stale WireGuard/network state and a stale caddy
+# config behind, which surfaces as a 502 on the tunnel path.
+#
+# A plain update (same identity, new tree) does not need it: ensure-stack-up
+# recreates exactly the services whose definition changed and leaves the rest
+# serving, so re-running install.sh to update or adopt a box costs no outage.
+# It used to take the stack down on every run, which made the recommended update
+# path the one that blacked the box out.
 #
 # Guarded: a fresh install has no Docker yet (ensure-docker-installed runs in the
 # self-check below) and no stack to stop, so this is skipped on first install.
-if command -v docker >/dev/null 2>&1 && [[ -f "$APP_DIR/docker-compose.yml" ]]; then
+IDENTITY_CHANGED=false
+if [[ -n "$PREV_PROVIDER_STR$PREV_DOMAIN" ]] \
+   && [[ "$PREV_PROVIDER_STR" != "$PROVIDER_STR" || "$PREV_DOMAIN" != "$DOMAIN" ]]; then
+  IDENTITY_CHANGED=true
+fi
+if [[ "$IDENTITY_CHANGED" == true || "$CLEAN_RESTART" == true ]] \
+   && command -v docker >/dev/null 2>&1 && [[ -f "$APP_DIR/docker-compose.yml" ]]; then
   echo "[..] Stopping existing stack for a clean restart..."
   (cd "$APP_DIR" && docker compose down --remove-orphans) || true
   echo "[OK] Stack stopped"
