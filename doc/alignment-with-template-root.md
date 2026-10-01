@@ -700,6 +700,27 @@ gates registered and redirected to Dex. A browser login end to end was not done.
 This is the real fix for the cold-boot crash loop listed below: Dex no longer needs the public
 route to be registered to open its connector.
 
+## What a Yundera PCS will rely on here — decided 2026-10-01
+
+The switch on the `template-root` side has not started; these are the decisions that make
+this template's behaviour fleet-facing once it does (`template-root/doc/mesh-stock-switch.md`
+has the whole picture).
+
+- **`install.sh` from jsDelivr is how a PCS gets this template.** `--yes --provider --domain
+  --email --channel`, no claim flags (the box stays unclaimed). A change to the installer is
+  therefore a change to PCS provisioning, and the jsDelivr purge is part of releasing it.
+- **A failed run fails the PCS create**, the check-only steps included (`ensure-root-domain`,
+  `ensure-route-registered`). Keep them strict and keep their retry budget honest about a
+  cold route registration.
+- **Mesh Console's update panel is neither hidden nor locked on a PCS.** `UPDATE_URL`,
+  `MESH_AUTO_UPDATE` and `SELF_CHECK_CRON` are set once at install and are this template's
+  own from then on.
+- **Each template updates itself from its own channel**, so `stable` here reaches PCS boxes
+  without a `template-root` release.
+- **Open: `EMAIL`.** On a PCS the orchestrator's value is authoritative, while
+  `ensure-email-synced.sh` writes the backend's. Whether that is settled at the source, by a
+  key that turns the sync off, or left to the two runs is not decided.
+
 ## Open follow-ups
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.
