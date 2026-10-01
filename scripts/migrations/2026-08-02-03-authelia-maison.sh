@@ -28,8 +28,8 @@
 # # /DATA/AppData/casaos IS NOT OURS TO DELETE.                              #
 # # It holds apps/ — every app definition on the box, including apps/mesh,    #
 # # which is this template's own directory. Removing CasaOS means removing    #
-# # the CONTAINERS, never the tree. ensure-maison-app-mirror.sh keeps         #
-# # projecting those apps into Maison's layout.                               #
+# # the CONTAINERS, never the tree. (ensure-maison-app-mirror.sh, retired      #
+# # since, projected those apps into Maison's layout.)                        #
 # ############################################################################
 set -euo pipefail
 

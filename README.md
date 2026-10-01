@@ -95,9 +95,10 @@ part of the mesh stack — it attaches to the shared `pcs` network (see
 - What apps receive on install — network, domain, public IP, default password — comes
   from `${DATA_ROOT}/AppData/maison/.env.app`, regenerated from the mesh `.env` on
   every self-check.
-- Apps installed by CasaOS before it was removed still live under
-  `/DATA/AppData/casaos/apps/<app>`. `ensure-maison-app-mirror.sh` projects them into
-  Maison's layout so they are manageable rather than merely visible.
+- Apps installed by CasaOS before it was removed were copied into Maison's layout
+  (`${DATA_ROOT}/AppData/<app>`) by the now-retired `ensure-maison-app-mirror.sh`, and
+  Maison manages them there. The originals under `/DATA/AppData/casaos/apps/<app>` are
+  left in place, unread.
 
 ### mesh-console (the stack's web UI)
 

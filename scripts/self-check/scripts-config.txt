@@ -46,10 +46,13 @@ ensure-auth-stack.sh
 # Auxiliary stack — Maison, the dashboard. MUST stay after ensure-auth-stack.sh:
 # its AppShield gate needs auth-registrar / dex reachable by name on `pcs`.
 ensure-maison-stack.sh
-# Projects CasaOS-installed apps (boxes provisioned before CasaOS was removed) into
-# Maison's layout so they are manageable rather than merely visible. No-op on a
-# fresh install.
-ensure-maison-app-mirror.sh
+# Retired, and listed here only so nobody reintroduces it: ensure-maison-app-mirror.sh.
+# It projected an app's compose + a generated .env from /DATA/AppData/casaos/apps/<app>
+# into ${DATA_ROOT}/AppData/<app>. CasaOS stopped writing that tree when it was removed
+# (2026-08-02), so the copy has been complete ever since; Maison owns that path directly
+# now and re-applies the deployment's variables into each app's .env on every start
+# (Maison's docs/app-env.md), so a second writer of that file would remove the keys
+# Maison computes. Whatever is left under /DATA/AppData/casaos/apps is dead data.
 
 # The web Terminal - the AppStore's Terminal app shipped as a system app
 # (stacks/terminal/). Same constraint as Maison above: its gate registers through

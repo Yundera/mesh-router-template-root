@@ -280,6 +280,14 @@ The mirror is still needed with CasaOS gone: existing boxes have apps under
 `/DATA/AppData/casaos/apps/<app>`, which Maison lists as *unmanaged* (no env / compose /
 update tabs) until mirrored into `/DATA/AppData/<app>/`.
 
+> **Retired since.** `ensure-maison-app-mirror.sh` is deleted, as it was upstream on
+> 2026-09-08 (template-root's `doc/root-migration.md`). CasaOS stopped writing
+> `casaos/apps/<app>` the day it was removed, so the mirror was copying a frozen tree: the
+> copy was the migration, and it was complete. Its nightly rewrite of each app's `.env` had
+> also become harmful — it replaced the whole file, dropping the keys Maison computes
+> (`DATA_ROOT`, `DATA_HOST_PATH`) until the app's next start. The old tree and the
+> `.casaos-mirror` markers stay in place, unread.
+
 **Remove:** the `casaos` service, and its references in `uninstall.sh`, `install.sh`,
 `install.ps1`, `dev/docker-compose.yml`, `dev/README.md`.
 

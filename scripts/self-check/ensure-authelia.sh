@@ -312,10 +312,10 @@ else
     #        could not validate the schema: users: non zero value required
     #      Hence a PLACEHOLDER key, which `claim` renames to the user's choice.
     #
-    # DEFAULT_PWD is deliberately NOT used here. It is an app-seed secret —
-    # ensure-maison-app-mirror.sh injects it into every installed app as
-    # default_pwd / PCS_DEFAULT_PASSWORD / APP_DEFAULT_PASSWORD — so making it the
-    # login password put the owner's own credential in every app's environment.
+    # DEFAULT_PWD is deliberately NOT used here. It is an app-seed secret — it
+    # reaches every installed app as APP_DEFAULT_PASSWORD through the .env.app
+    # ensure-maison-stack.sh writes for Maison — so making it the login password
+    # put the owner's own credential in every app's environment.
     if ! authelia_hash argon2 --random --random.length 64; then
         log_error "Failed to generate the unclaimed-account placeholder hash via $AUTHELIA_IMAGE after $HASH_MAX_ATTEMPTS attempts"
         exit 1
