@@ -59,6 +59,24 @@ if [ -z "$(get_env_value AUTH_CONSOLE_ASSERTION_SECRET)" ]; then
     echo "Generated AUTH_CONSOLE_ASSERTION_SECRET"
 fi
 
+# The auth-console gate runs as 65534 and writes sessions.json through a temp file
+# in this directory, so the DIRECTORY must be its own. Created and chowned here,
+# before `up`: left to Docker it would be root-owned. Also what converts a box
+# whose gate used to run as root.
+AUTH_CONSOLE_GATE_UID=65534
+# A gate still running as another user (root, before this) is stopped first: it
+# rewrites sessions.json as ITSELF on shutdown, which would land after the chown
+# below and leave the new gate a file it cannot read — every console login
+# forgotten once. The deploy below starts it again.
+OLD_GATE_USER="$(docker container inspect -f '{{.Config.User}}' auth-console 2>/dev/null || true)"
+if [ -n "$OLD_GATE_USER" ] && [ "$OLD_GATE_USER" != "$AUTH_CONSOLE_GATE_UID:$AUTH_CONSOLE_GATE_UID" ]; then
+    echo "auth-console gate runs as '$OLD_GATE_USER'; stopping it so its sessions can be handed to uid $AUTH_CONSOLE_GATE_UID"
+    docker stop auth-console >/dev/null 2>&1 || true
+fi
+mkdir -p "$AUTH_DIR/auth-console/gate-data"
+chown -R "$AUTH_CONSOLE_GATE_UID:$AUTH_CONSOLE_GATE_UID" "$AUTH_DIR/auth-console/gate-data" 2>/dev/null \
+    || echo "WARN: could not chown auth-console/gate-data to $AUTH_CONSOLE_GATE_UID; the console gate will not persist sessions"
+
 dex_id() { docker container inspect -f '{{.Id}}' dex 2>/dev/null || true; }
 DEX_BEFORE="$(dex_id)"
 

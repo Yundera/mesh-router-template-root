@@ -183,7 +183,19 @@ fi
 DEX_SECRET_HASH="$(cat "$DEX_HASH_FILE")"
 
 # --- render configuration.yml ------------------------------------------------
-# Base via pure-bash literal substitution (${DOMAIN} only), then append the
+# BRANDING. BRAND_NAME in .env names the product on the two places Authelia shows
+# one: the TOTP issuer (what an authenticator app lists the account under) and
+# the password-reset mail (sender name and subject tag). Unset, the box names
+# itself by its domain, which is both vendor-neutral and the anti-phishing cue.
+# Single quotes are doubled because the template puts these inside '...' YAML.
+BRAND="${BRAND_NAME:-}"
+_SQ="'"
+BRAND="${BRAND//$_SQ/$_SQ$_SQ}"
+TOTP_ISSUER="${BRAND:-$DOMAIN}"
+MAIL_SENDER_NAME="${BRAND:-PCS}"
+MAIL_SUBJECT_TAG="${BRAND:-$DOMAIN}"
+
+# Base via pure-bash literal substitution (a fixed token list), then append the
 # always-present single-client OIDC block. The pbkdf2 hash and the PEM hold '$'
 # sequences, so they are injected as bash variable values inside the heredoc —
 # never through a substitution pass.
@@ -191,6 +203,9 @@ TMP="$(mktemp)"
 chmod 600 "$TMP"
 CONTENT="$(cat "$TEMPLATE")"
 CONTENT="${CONTENT//\$\{DOMAIN\}/$DOMAIN}"
+CONTENT="${CONTENT//\$\{TOTP_ISSUER\}/$TOTP_ISSUER}"
+CONTENT="${CONTENT//\$\{MAIL_SENDER_NAME\}/$MAIL_SENDER_NAME}"
+CONTENT="${CONTENT//\$\{MAIL_SUBJECT_TAG\}/$MAIL_SUBJECT_TAG}"
 printf '%s\n' "$CONTENT" > "$TMP"
 
 HMAC="$(cat "$SECRETS_DIR/oidc-hmac")"

@@ -206,6 +206,12 @@ services:
       SMTP_SECURITY: "none"
       SMTP_TO: "${SMTP_TO:-}"
 
+      # The resident backup engine container Maison `docker exec`s into, when a
+      # deployment runs one. The default is Maison's own, and with no such
+      # container Maison starts a one-shot engine per command — so this is inert
+      # here; it exists for a deployment that ships an engine stack.
+      BACKUP_ENGINE_CONTAINER: "${BACKUP_ENGINE_CONTAINER:-backup-engine}"
+
       # Where the HOST's /proc is readable, for the Resources page.
       #
       # Most of /proc is NOT namespaced — /proc/stat, /proc/meminfo and

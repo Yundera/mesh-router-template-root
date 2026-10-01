@@ -62,6 +62,7 @@ services:
     image: ghcr.io/dexidp/dex@sha256:af9469509350ff3f6ca70127175a58e5ab085b9d18740fa4a590d9f03f0a026b
     container_name: dex
     hostname: dex
+    cpu_shares: 80
     restart: unless-stopped
     command: ["dex", "serve", "/data/config.yaml"]
     environment:
@@ -181,6 +182,7 @@ services:
     image: authelia/authelia:4.39.25
     container_name: authelia
     hostname: authelia
+    cpu_shares: 80
     restart: unless-stopped
     environment:
       AUTHELIA_SESSION_SECRET_FILE: /config/secrets/session
@@ -229,6 +231,7 @@ services:
     image: ghcr.io/yundera/mesh-auth:1.1.7
     container_name: auth-registrar
     hostname: auth-registrar
+    cpu_shares: 40
     restart: unless-stopped
     environment:
       ISSUER_URL: https://auth-${DOMAIN}
@@ -310,9 +313,12 @@ services:
     container_name: auth-console
     hostname: auth-console
     restart: unless-stopped
-    # Root, like the maison and mesh-console gates: the gate-data dir is created
-    # by Docker as root, and a non-root gate silently fails to persist sessions.
-    user: "0:0"
+    # Unprivileged: the gate needs nothing but its own /data. ensure-auth-stack.sh
+    # creates gate-data and gives it to this uid before the stack comes up — left
+    # to Docker the directory would be root-owned, and a non-root gate then fails
+    # to persist sessions without saying so ("[session] save failed: permission
+    # denied", every login forgotten on restart).
+    user: "65534:65534"
     cpu_shares: 40
     mem_limit: 128m
     expose:
@@ -379,6 +385,14 @@ services:
       # The live scripts (ensure-template-sync.sh propagates scripts/ here), not
       # the pristine template/ copy.
       HOST_SCRIPTS: "${DATA_ROOT:-/DATA}/AppData/mesh/scripts"
+      # Both empty unless the box is run by an operator, and inert when empty.
+      # OPERATOR_API is the operator's control-plane base URL: with it the Access
+      # page shows, tags and can toggle the operator's support SSH key
+      # (GET <OPERATOR_API>/support/ssh-key). TRUSTED_PUBKEY_HOST_SUFFIXES is the
+      # comma-separated list of key-comment host suffixes the page marks as
+      # trusted. Set in the mesh .env by whatever provisions the box.
+      OPERATOR_API: "${OPERATOR_API:-}"
+      TRUSTED_PUBKEY_HOST_SUFFIXES: "${TRUSTED_PUBKEY_HOST_SUFFIXES:-}"
     expose:
       - "8080"   # NEVER `ports:` — see the security note above
     networks:

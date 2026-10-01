@@ -466,6 +466,12 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `MESH_UPDATE_CHANNEL` / `MESH_TEMPLATE_URL` | _(unset)_ | **Deprecated** pre-rename keys, still read as fallbacks for one release. Migrated to `UPDATE_URL` automatically |
 | `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
 | `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |
+| `PUBLIC_IP_MODE` | `egress` | How `ensure-public-ip.sh` finds this box's address. `egress`: ask the outside world which address the box connects from — right behind NAT (a home server with forwarded ports). `interface`: take the globally-routable address on a local interface and nothing else — right for a cloud VM, where the egress address can be an upstream NAT gateway that is not this machine; an address the backend cannot ping is dropped, and IPv6 is used when the box has no public IPv4 of its own |
+| `BRAND_NAME` | _(unset)_ | Product name shown as the TOTP issuer and on the password-reset mail. Unset, the box names itself by its domain |
+| `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |
+| `PLATFORM_PROJECTS` | `mesh,auth,maison,mesh-console` | Compose projects Mesh Console lists as platform containers |
+| `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | _(unset)_ | For a box run by an operator: the control-plane URL the Access page reads the support SSH key from, and the key-comment host suffixes it marks as trusted. Inert when empty |
+| `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Resident backup engine Maison execs into, for a deployment that ships one |
 
 `PROVIDER_STR`, `DEFAULT_PWD` and `SELF_CHECK_CRON` were previously named `PROVIDER`,
 `DEFAULT_PASSWORD` and `MESH_SELF_CHECK_CRON`. Existing boxes are renamed in place by

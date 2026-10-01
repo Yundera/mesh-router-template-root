@@ -74,7 +74,7 @@ regulation:
   ban_time: '10m'
 
 totp:
-  issuer: '${DOMAIN}'
+  issuer: '${TOTP_ISSUER}'
   period: 30
   skew: 1
 
@@ -87,8 +87,8 @@ notifier:
     # The mail-gateway container already in this stack: plaintext, no auth,
     # reachable only on the internal `pcs` network.
     address: 'smtp://smtp:587'
-    sender: 'PCS <noreply@${DOMAIN}>'
-    subject: '[${DOMAIN}] {title}'
+    sender: '${MAIL_SENDER_NAME} <noreply@${DOMAIN}>'
+    subject: '[${MAIL_SUBJECT_TAG}] {title}'
     # The relay does not advertise STARTTLS or accept TLS — force plaintext.
     disable_require_tls: true
     disable_starttls: true

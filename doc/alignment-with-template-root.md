@@ -611,14 +611,51 @@ both, here" is therefore the rule for anything generic. Done in this pass:
 In the other direction, `template-root` renamed its auth network `yundera-auth` back to
 `dex-internal`, the name used here.
 
-Still only in `template-root`, generic, and worth porting here before the switch (each needs
-a real-box test, which is why they are not in this pass):
+### Second pass, same day — the rest of the ports, and the seams
 
-| Item | What it is |
-|---|---|
-| Reachability-probed public IP | `ensure-public-ip.sh` asks mesh-router-backend's `/probe` before registering an address. The netplan / `ens19` half stays Yundera-only. |
-| auth-console gate as 65534 | plus the `gate-data` chown. It runs as `0:0` here. |
-| `cpu_shares` | on every service. |
+**Ported:**
+
+- **`ensure-public-ip.sh`: `PUBLIC_IP_MODE` and the reachability probe.** The two templates
+  answered "what is my public IP" in opposite ways, each right for its own box, so both are
+  kept and the mode is stated in `.env`. `egress` (default, unchanged) asks the outside world;
+  `interface` is `template-root`'s rule — the address on a local interface, IPv6 when there is
+  no public IPv4, `127.0.0.1` when there is neither. Both ask mesh-router-backend's
+  `POST /router/api/probe` (URL from `PROVIDER_STR`, never derived from `DOMAIN`): in
+  `interface` mode an address that does not answer is dropped; in `egress` mode it is a
+  warning, because the address is a NAT device's and a router that drops ICMP is ordinary.
+  Parsed with `sed` — no `python3`, unlike the original. Not ported: the netplan / `ens19`
+  step, which stays a Yundera host step and must run first.
+
+  One addition the original lacks: every probe carries a **control address** per family
+  (Cloudflare's resolvers), and a family whose control comes back unreachable gets no
+  verdict. Found on watch.nsl.sh the day this was written — the nsl.sh backend had no IPv6
+  connectivity and reported every IPv6 address as unreachable, which in `interface` mode
+  would have cleared a working address.
+- **auth-console gate as `65534`**, with `ensure-auth-stack.sh` creating and chowning
+  `auth-console/gate-data` before `up`. A gate still running as root is stopped first: it
+  rewrites `sessions.json` as itself on shutdown, which on watch landed after the chown and
+  cost the console its sessions once.
+- **`cpu_shares`** on tunnel, agent, Caddy, smtp, Dex, Authelia and the registrar — the same
+  weights as `template-root`.
+
+**Seams** — values `template-root` hardcodes that are really a deployment's own. Each is an
+`.env` key with this template's behaviour as the default, so a stock tree can carry another
+product's values without a fork:
+
+| Key | Default | Replaces, in `template-root` |
+|---|---|---|
+| `BRAND_NAME` | the box's domain (`PCS` as mail sender name) | `Yundera` as TOTP issuer, mail sender and subject tag |
+| `DEX_THEME_SRC` | the shipped `dex-theme/` | its own `dex-theme/themes/yundera` |
+| `PLATFORM_PROJECTS` | `mesh,auth,maison,mesh-console` | `mesh,auth,yundera,maison,kopia,terminal` |
+| `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | empty (feature off) | the operator URL and `yundera.com` on auth-console |
+| `BACKUP_ENGINE_CONTAINER` | `backup-engine` (Maison's own default) | `kopia-engine` |
+| `PUBLIC_IP_MODE` | `egress` | `interface`, above |
+| `TERMINAL_USER` | `root` | `admin` (already a key) |
+
+The theme is installed into a fixed slot (`themes/mesh`) whatever the source calls it, so the
+Dex config and the compose mount do not have to follow a name. Left as they are: Authelia's
+JWKS `key_id` (`pcs` here, `yundera-pcs` there — a one-time key rotation at adoption, not
+worth a knob) and the `x-casaos` metadata blocks.
 
 ## Mesh CA and on-box issuer pins — IMPLEMENTED (unreleased, 2026-10-01)
 

@@ -34,8 +34,23 @@ SELF_TREE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 THEME_SRC="$SELF_TREE/dex-theme"
 [ -d "$THEME_SRC" ] || THEME_SRC="$TEMPLATE_DIR/dex-theme"
 
-# Keep in sync with `frontend.theme` in scripts/self-check/dex.config.yaml.tmpl
-# and the themes/ bind mount in docker-compose.yml.
+# DEX_THEME_SRC in .env points at another directory of the same shape
+# (templates/*.html and themes/<name>/) and replaces the login UI wholesale — a
+# deployment's own branding, with no fork of this template. An unset or missing
+# path falls back to the shipped theme rather than to Dex's stock UI.
+if [ -n "${DEX_THEME_SRC:-}" ]; then
+    if [ -d "$DEX_THEME_SRC/templates" ] && [ -d "$DEX_THEME_SRC/themes" ]; then
+        THEME_SRC="$DEX_THEME_SRC"
+    else
+        echo "WARN: DEX_THEME_SRC=$DEX_THEME_SRC has no templates/ and themes/; using the shipped login theme"
+    fi
+fi
+
+# The SLOT the theme is installed into: `frontend.theme` in
+# scripts/self-check/dex.config.yaml.tmpl and the themes/ bind mount in
+# stacks/auth/docker-compose.yml both name it, so it stays fixed whatever the
+# source directory calls its theme. Nothing a user sees carries this name — the
+# templates reference assets as theme/<file>.
 THEME_NAME="mesh"
 # Lives INSIDE dex/ rather than beside it: same owner, same lifecycle, same "pure
 # cache" rule as the rest of dex/ (see the RECOVERY note in ensure-dex.sh). The
@@ -90,7 +105,11 @@ mkdir -p "$DEX_FRONTEND/themes/$THEME_NAME"
 # Emptying the directory and copying into it keeps the inode the container is
 # holding, so a running dex picks the new files up with no restart at all.
 find "$DEX_FRONTEND/themes/$THEME_NAME" -mindepth 1 -delete 2>/dev/null || true
-if ! cp -rf "$THEME_SRC/themes/$THEME_NAME/." "$DEX_FRONTEND/themes/$THEME_NAME/"; then
+# From themes/mesh when the source has one, else from its only theme directory —
+# a DEX_THEME_SRC is free to name its theme after its own product.
+THEME_FROM="$THEME_SRC/themes/$THEME_NAME"
+[ -d "$THEME_FROM" ] || THEME_FROM="$(find "$THEME_SRC/themes" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -n 1)"
+if [ -z "$THEME_FROM" ] || ! cp -rf "$THEME_FROM/." "$DEX_FRONTEND/themes/$THEME_NAME/"; then
     echo "WARN: could not provision $DEX_FRONTEND/themes/$THEME_NAME"
     RC=1
 fi
