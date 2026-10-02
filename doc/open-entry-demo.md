@@ -47,7 +47,7 @@ set -euo pipefail
 
 MESH_ROOT=/DATA/AppData/mesh
 SCRIPTS="$MESH_ROOT/scripts"
-AUTH_DIR=/DATA/AppData/.demo-auth
+AUTH_DIR=/DATA/AppData/demo-auth
 CONNECTORS_D="/DATA/AppData/auth/dex/connectors.d"
 DROPIN="$CONNECTORS_D/demo-open-entry.yaml"
 USERS_DB="/DATA/AppData/auth/authelia/users_database.yml"
@@ -98,8 +98,10 @@ render_dex_and_verify() {
 # and silently never fires — the token is still issued, just stripped of every
 # claim, so login "works" and the visitor lands with no email and no admin role.
 # groups:["admins"] is load-bearing for AppShield's group gate.
-# The leading dot in /DATA/AppData/.demo-auth keeps the stack off the Maison grid
-# (Maison treats "." as reserved in AppData entry names).
+# x-compose-app view: system lists the stack in Maison's System grid as a
+# protected app (no stop, no uninstall) — stopping it would lock everyone out,
+# since it is the only connector. The folder has no leading dot so the tile
+# stays visible, greyed, even when the container is gone.
 cat > "$AUTH_DIR/docker-compose.yml" <<COMPOSE
 name: demo-auth
 
@@ -155,6 +157,14 @@ networks:
   pcs:
     name: pcs
     external: true
+
+x-compose-app:
+  schema_version: 2
+  id: demo-auth
+  title: Open Entry
+  category: pcs
+  developer: Yundera Team
+  view: system
 COMPOSE
 
 docker compose -f "$AUTH_DIR/docker-compose.yml" up -d
@@ -271,8 +281,8 @@ touches it; and `ensure-authelia.sh`'s already-seeded branch only ever rewrites
 
 ```bash
 rm -f /DATA/AppData/auth/dex/connectors.d/demo-open-entry.yaml
-docker compose -f /DATA/AppData/.demo-auth/docker-compose.yml down
-rm -rf /DATA/AppData/.demo-auth
+docker compose -f /DATA/AppData/demo-auth/docker-compose.yml down
+rm -rf /DATA/AppData/demo-auth
 yq -i '.users.admin.disabled = false' /DATA/AppData/auth/authelia/users_database.yml
 docker restart authelia
 bash /DATA/AppData/mesh/scripts/self-check/ensure-dex.sh
