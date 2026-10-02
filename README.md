@@ -307,7 +307,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `PUBLIC_IP_MODE` | `egress` | How `ensure-public-ip.sh` finds this box's address. `egress`: ask the outside world which address the box connects from — right behind NAT (a home server with forwarded ports). `interface`: take the globally-routable address on a local interface and nothing else — right for a cloud VM, where the egress address can be an upstream NAT gateway that is not this machine; an address the backend cannot ping is dropped, and IPv6 is used when the box has no public IPv4 of its own |
 | `BRAND_NAME` | _(unset)_ | Product name shown as the TOTP issuer and on the password-reset mail. Unset, the box names itself by its domain |
 | `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |
-| `PLATFORM_PROJECTS` | `mesh,auth,maison,mesh-console` | Compose projects Mesh Console lists as platform containers |
+| `PLATFORM_PROJECTS` | `mesh,auth,maison,terminal` | Compose projects that are the platform, not user apps: Mesh Console lists them as platform containers, and `tools/migrate.sh` neither stops nor starts them as apps |
 | `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | _(unset)_ | For a box run by an operator: the control-plane URL the Access page reads the support SSH key from, and the key-comment host suffixes it marks as trusted. Inert when empty |
 | `SETUP_URL` | _(unset)_ | Where an owner finishes setting the box up. While no sign-in method exists yet (unclaimed, no drop-in connector) every app's sign-in page links there. Inert when empty |
 | `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Resident backup engine Maison execs into, for a deployment that ships one |
@@ -334,6 +334,55 @@ tail -f /DATA/AppData/mesh/log/mesh.log
 
 Script updates take effect one run late by design: the sync copies new scripts during run N,
 the new versions execute on run N+1.
+
+## Moving the box to another machine
+
+`scripts/tools/migrate.sh` moves a box (domain, apps, data) onto another machine. It runs
+on the **old** box, which copies its data root over SSH, brings the new box up, moves the
+domain across and retires itself. Mesh Console's Migration page drives the same script.
+Design and reasons: [doc/migration.md](doc/migration.md).
+
+```bash
+sudo bash /DATA/AppData/mesh/scripts/tools/migrate.sh key                       # 1. this box's migration public key
+sudo bash /DATA/AppData/mesh/scripts/tools/migrate.sh preflight --to migration@new-box   # 2. check the target
+sudo bash /DATA/AppData/mesh/scripts/tools/migrate.sh start --to migration@new-box       # 3. go
+sudo bash /DATA/AppData/mesh/scripts/tools/migrate.sh log -f                    # follow it (status | cancel)
+```
+
+**The target is yours to prepare; nothing is installed on it beforehand.** `preflight` checks:
+
+- Ubuntu, reachable over SSH from this box
+- an account (`migration` by convention) with the key from step 1 in its
+  `~/.ssh/authorized_keys` and passwordless sudo (`<user> ALL=(ALL) NOPASSWD:ALL`)
+- `rsync` installed
+- free disk at least what this box uses, plus 5 GiB
+- no box on it yet: `${DATA_ROOT}/AppData` absent or empty
+- clocks within 60 s
+
+Docker is installed by the target's own self-check during the migration.
+
+What happens:
+
+- The data is copied twice: once with apps running, then again with them stopped, so the
+  downtime is the second, incremental copy.
+- The target comes up with `MESH_ROUTING_HOLD` set, which keeps its agent and tunnel off
+  the domain until it has been checked.
+- The cutover stops this box's agent and tunnel and lets the target publish.
+- This box ends **retired** (`MESH_ROUTING_HOLD=retired:<new-ip>`). Its self-check never
+  brings routing back. To undo, delete the key from `.env` and run the self-check.
+- Any failure rolls back, and this box serves again. The target is left as it is for you
+  to inspect or wipe.
+- Getting the new machine and deleting the old one are up to you.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `MESH_ROUTING_HOLD` | _(unset)_ | Set by `migrate.sh`. Keeps `mesh-router-agent` / `mesh-router-tunnel` absent: `migrating:<id>` during a migration, `retired:<ip>` on a box that was moved away |
+| `MIGRATE_TARGET_SELF_CHECK` | _(unset)_ | A second self-check to run on the target after the mesh one, for a deployment with a template of its own |
+| `MIGRATE_HOLD_LOCKS` | _(unset)_ | Comma-separated lock files `migrate.sh` holds for the whole run, so another self-check on this box skips meanwhile |
+
+State lives in `${DATA_ROOT}/AppData/mesh/data/migrate/`: the key, `status.json` (steps,
+copy progress, the result) and `migrate.log`. The directory is never copied. The target
+gets the log and final status under `data/migrate/arrived/`.
 
 ## Uninstall
 

@@ -230,7 +230,7 @@ services:
       caddy_2.reverse_proxy: "{{upstreams 80}}"
 
   mesh-console-app:
-    image: ghcr.io/yundera/mesh-console:1.2.0
+    image: ghcr.io/yundera/mesh-console:1.3.0
     container_name: mesh-console-app
     hostname: mesh-console-app
     restart: unless-stopped
@@ -247,11 +247,12 @@ services:
       MESH_HOST_ROOT: "${DATA_ROOT:-/DATA}/AppData/mesh"
       # The compose projects the console lists as platform containers. `auth`
       # joined at the split — dex, authelia and auth-registrar used to be listed
-      # under `mesh` and would otherwise drop out of the Stack page.
+      # under `mesh` and would otherwise drop out of the Stack page. `terminal` is a
+      # platform stack too; `mesh-console` is not a project of its own any more.
       #
       # PLATFORM_PROJECTS in the mesh .env replaces the list, for a deployment that
       # runs platform stacks of its own beside these.
-      PLATFORM_PROJECTS: "${PLATFORM_PROJECTS:-mesh,auth,maison,mesh-console}"
+      PLATFORM_PROJECTS: "${PLATFORM_PROJECTS:-mesh,auth,maison,terminal}"
     expose:
       - "8080"   # NEVER `ports:` — see the security note above
     networks:

@@ -10,6 +10,14 @@ set -e
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/common.sh"
 
+# A held box publishes no routes on purpose (see ensure-stack-up.sh); whatever
+# the backend shows for this identity belongs to the box that holds the domain.
+ROUTING_HOLD="$(get_env_value MESH_ROUTING_HOLD)"
+if [ -n "$ROUTING_HOLD" ]; then
+    echo "Routing held ($ROUTING_HOLD): no routes expected from this box"
+    exit 0
+fi
+
 if [ -z "${PROVIDER_STR:-}" ]; then
     echo "ERROR: PROVIDER_STR not set"
     exit 1

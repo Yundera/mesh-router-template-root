@@ -108,6 +108,21 @@ if [ -n "$HANDED_OVER" ]; then
     UP_ARGS=(-d)
 fi
 
+# ROUTING HOLD: keep this box off the domain. Two agents (or tunnels) on one
+# identity overwrite each other's routes in the backend - last writer wins and the
+# domain flaps - so while MESH_ROUTING_HOLD is set, mesh-router-agent and
+# mesh-router-tunnel are kept ABSENT; everything else, Caddy included, still runs
+# and answers on the box's own sslip.io / nip.io names. Set by tools/migrate.sh:
+#   migrating:<id>       a target being brought up, or a source mid-cutover
+#   retired:<target-ip>  a migrated-away source; deleting the key is the rollback
+# Absent rather than stopped, the same as dex in the auth stack: a stopped
+# container is restarted by the next `up` and fails wait_stack_settled.
+ROUTING_HOLD="$(get_env_value MESH_ROUTING_HOLD)"
+if [ -n "$ROUTING_HOLD" ]; then
+    echo "Routing held ($ROUTING_HOLD): mesh-router-agent and mesh-router-tunnel stay down"
+    UP_ARGS+=(--scale mesh-router-agent=0 --scale mesh-router-tunnel=0)
+fi
+
 # If `up` still fails, start whatever it did create before reporting: compose
 # aborts mid-way leaving containers in `Created`, and install.sh has already taken
 # the stack down, so a hard exit here leaves the box with no routing at all. A
@@ -134,7 +149,7 @@ fi
 # to open the Local Account connector, so give the agent a moment. A warning, not
 # a failure: a box whose agent cannot reach the backend has no certificate at
 # all, which the verification steps at the end of the list report on their own.
-if grep -q 'CA_CERT_PATH' "$APP_DIR/docker-compose.yml"; then
+if [ -z "$ROUTING_HOLD" ] && grep -q 'CA_CERT_PATH' "$APP_DIR/docker-compose.yml"; then
     for _ in $(seq 1 15); do
         [ -s "$MESH_CA_DIR/ca-cert.pem" ] && break
         sleep 2
