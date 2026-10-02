@@ -14,8 +14,10 @@
 #   - render configuration.yml every run (tracks DOMAIN),
 #   - seed the admin user in users_database.yml from DEFAULT_PWD, refreshing only
 #     the email on later runs (Authelia owns the password once the user changes it),
-#   - restart authelia so a re-rendered config is picked up, and WAIT for it to
-#     serve again before returning (ensure-dex.sh restarts Dex moments later),
+#   - restart authelia ONLY when something it reads at startup changed (the
+#     rendered config, a freshly generated secret or key), and WAIT for it to
+#     serve again — mesh-router-caddy's route included — before returning
+#     (ensure-dex.sh restarts Dex moments later),
 #   - write or remove Authelia's Dex connector, the "Local Account" drop-in
 #     (dex/connectors.d/authelia.yaml) — see write_local_account_connector.
 #
@@ -159,7 +161,7 @@ authelia_hash() {
 # The file carries the connector's client secret (AUTHELIA_DEX_SECRET), so it is
 # 0600; ensure-dex.sh hands the whole Dex tree to uid 1001.
 write_local_account_connector() {
-    local CONNECTORS_D DROPIN TMP AUTHELIA_DEX_SECRET DOMAIN MESH_CA PROBE_OK DISCOVERY
+    local CONNECTORS_D DROPIN TMP AUTHELIA_DEX_SECRET DOMAIN PROBE_RC
     CONNECTORS_D="$DEX_HOME/connectors.d"
     DROPIN="$CONNECTORS_D/authelia.yaml"
     mkdir -p "$CONNECTORS_D"
@@ -231,44 +233,28 @@ YAML
         log_info "Wrote the Local Account connector ($DROPIN)"
     fi
 
-    # Check the path Dex will take to open that connector, and say so when it is
-    # broken. Dex reaches local-auth-${DOMAIN} ON THE BOX — extra_hosts pins the name
-    # to this host's :443, i.e. mesh-router-caddy, and SSL_CERT_DIR makes it trust the
-    # mesh CA (stacks/auth/docker-compose.yml). This is the same request from the host:
-    # same port, same certificate, same CA file.
+    # Check the path Dex will take to open that connector (local_auth_discovery_ok,
+    # library/authelia-ready.sh), and say so when it is broken.
     #
     # A WARNING ONLY — the connector is written either way. Local Account is usually
     # this box's ONLY connector, so omitting it would trade a login that may not work
-    # for no login at all. Skipped when Authelia is not running yet (cold boot) or
-    # when curl is missing.
+    # for no login at all. Skipped when Authelia is not running yet (cold boot). After
+    # a restart, wait_for_authelia has already waited for this same route.
     DOMAIN="$(get_env_value DOMAIN)"
-    MESH_CA="$MESH_ROOT/data/ca/ca-cert.pem"
-    # On the run that first delivers data/ca the file is still beside the key:
-    # ensure-stack-up.sh, later in the list, is what moves it. Same CA either way.
-    [ -s "$MESH_CA" ] || [ ! -s "$MESH_ROOT/data/certs/ca-cert.pem" ] || MESH_CA="$MESH_ROOT/data/certs/ca-cert.pem"
-    if [ -n "$DOMAIN" ] && command -v curl >/dev/null 2>&1 \
-        && [ "$(docker inspect -f '{{.State.Running}}' authelia 2>/dev/null)" = "true" ]; then
-        if [ ! -s "$MESH_CA" ]; then
-            log_warn "The mesh CA is not at $MESH_CA yet; Dex cannot verify local-auth-$DOMAIN on the box until mesh-router-agent writes it"
-        else
-            PROBE_OK=0
-            for _ in 1 2 3; do
-                # Captured, not piped: under pipefail, `grep -q` closing the pipe early
-                # would fail curl and read as a failed probe.
-                DISCOVERY="$(curl -sS --max-time 10 \
-                        --resolve "local-auth-$DOMAIN:443:127.0.0.1" --cacert "$MESH_CA" \
-                        "https://local-auth-$DOMAIN/.well-known/openid-configuration" 2>/dev/null || true)"
-                if grep -q '"issuer"' <<<"$DISCOVERY"; then
-                    PROBE_OK=1
-                    break
-                fi
-                sleep 3
-            done
-            if [ "$PROBE_OK" != "1" ]; then
-                log_warn "local-auth-$DOMAIN did not return a discovery document over the on-box path (127.0.0.1:443, mesh CA)"
-                log_warn "  Dex may fail to open the Local Account connector. Check that authelia is up and that"
-                log_warn "  mesh-router-caddy serves local-auth-$DOMAIN with the mesh certificate."
-            fi
+    if [ "$(docker inspect -f '{{.State.Running}}' authelia 2>/dev/null)" = "true" ]; then
+        PROBE_RC=0
+        for _ in 1 2 3; do
+            PROBE_RC=0
+            local_auth_discovery_ok || PROBE_RC=$?
+            [ "$PROBE_RC" -eq 1 ] || break
+            sleep 3
+        done
+        if [ "$PROBE_RC" -eq 1 ]; then
+            log_warn "local-auth-$DOMAIN did not return a discovery document over the on-box path (127.0.0.1:443, mesh CA)"
+            log_warn "  Dex may fail to open the Local Account connector. Check that authelia is up and that"
+            log_warn "  mesh-router-caddy serves local-auth-$DOMAIN with the mesh certificate."
+        elif [ "$PROBE_RC" -eq 2 ] && [ -z "$(local_auth_ca)" ]; then
+            log_warn "The mesh CA is not under $MESH_ROOT/data yet; Dex cannot verify local-auth-$DOMAIN on the box until mesh-router-agent writes it"
         fi
     fi
 }
@@ -290,11 +276,19 @@ fi
 mkdir -p "$SECRETS_DIR" "$OIDC_DIR"
 chmod 700 "$SECRETS_DIR"
 
+# Set when something Authelia reads only at startup changed in this run: the
+# rendered configuration.yml (which embeds the client hash and the JWKS key), or a
+# secret file it loads through *_FILE. users_database.yml is NOT among them —
+# Authelia watches it (`watch: true`), so an email refresh or a claim needs no
+# restart. See the restart block at the end for why this matters.
+AUTHELIA_RESTART_NEEDED=0
+
 # --- generate-once secrets ---------------------------------------------------
 for name in session storage reset oidc-hmac; do
     if [ ! -f "$SECRETS_DIR/$name" ]; then
         openssl rand -hex 32 > "$SECRETS_DIR/$name"
         chmod 600 "$SECRETS_DIR/$name"
+        AUTHELIA_RESTART_NEEDED=1
         echo "Generated Authelia secret: $name"
     fi
 done
@@ -396,9 +390,15 @@ ${JWKS_KEY}
         token_endpoint_auth_method: 'client_secret_basic'
 EOF
 
-mv "$TMP" "$CONFIG_OUT"
-chmod 600 "$CONFIG_OUT"
-echo "Rendered Authelia config at $CONFIG_OUT"
+if cmp -s "$TMP" "$CONFIG_OUT"; then
+    rm -f "$TMP"
+    echo "Authelia config at $CONFIG_OUT is unchanged"
+else
+    mv "$TMP" "$CONFIG_OUT"
+    chmod 600 "$CONFIG_OUT"
+    AUTHELIA_RESTART_NEEDED=1
+    echo "Rendered Authelia config at $CONFIG_OUT"
+fi
 
 # --- seed / refresh the admin user ------------------------------------------
 # The operator email is the password-reset recovery address, so it must track
@@ -513,14 +513,27 @@ EOF
     log_success "Seeded Authelia owner account UNCLAIMED (${AUTHELIA_ADMIN}, disabled until it is claimed)"
 fi
 
-# Pick up the re-rendered config. SIGHUP is NOT safe (Authelia 4.39 exits on it);
+# Pick up a changed config. SIGHUP is NOT safe (Authelia 4.39 exits on it);
 # docker restart is a clean SIGTERM + start. Silent on cold boot, and skipped for
 # a container still bound to the pre-move directory — restarting that one would
 # start it on an empty folder; ensure-auth-stack.sh recreates it.
-if restart_if_bound authelia "$AUTH_ROOT"; then
-    # Do NOT return before it answers: ensure-dex.sh restarts Dex seconds from
-    # now, and Dex drops a connector whose issuer is not serving at its startup.
-    wait_for_authelia
+#
+# ONLY ON A CHANGE. This used to restart Authelia on every run, and every restart
+# takes local-auth-${DOMAIN} out of mesh-router-caddy for as long as
+# caddy-docker-proxy needs to re-add the route — 20-25s on a busy box. Dex, restarted
+# by ensure-dex.sh right after, then could not open the Local Account connector;
+# on Yundera's older tree, where the connector was omitted on a failed probe, the
+# box lost its Local Account button every night (2026-10-02). It also logged every
+# user out of Authelia nightly for no reason.
+if [ "$AUTHELIA_RESTART_NEEDED" -eq 1 ]; then
+    if restart_if_bound authelia "$AUTH_ROOT"; then
+        # Do NOT return before it is served again: ensure-dex.sh restarts Dex
+        # seconds from now, and Dex drops a connector whose issuer is not serving
+        # at its startup.
+        wait_for_authelia
+    fi
+else
+    echo "Nothing Authelia reads at startup changed; not restarting it"
 fi
 
 # After the restart: the connector step probes Authelia over the on-box path.

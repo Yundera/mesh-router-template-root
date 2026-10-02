@@ -224,6 +224,13 @@ if [ "$CONNECTOR_COUNT" -eq 0 ]; then
             || log_warn "Could not remove the dex container"
     fi
 elif [ "$(docker container inspect -f '{{.State.Running}}' dex 2>/dev/null)" = "true" ]; then
+    # Same rule as the start below, for a restart: whatever restarted Authelia
+    # (or mesh-router-caddy) moments ago, Dex must not reopen its connectors
+    # before local-auth is routed again. Two quick probes when it already is.
+    if [ -f "$CONNECTORS_D/authelia.yaml" ] \
+        && [ "$(docker container inspect -f '{{.State.Running}}' authelia 2>/dev/null)" = "true" ]; then
+        wait_for_authelia
+    fi
     restart_if_bound dex "$DEX_ROOT" || true
 elif [ -f "$AUTH_STACK_DIR/docker-compose.yml" ]; then
     # DEX MUST NOT START BEFORE AUTHELIA ANSWERS when Local Account is among its
