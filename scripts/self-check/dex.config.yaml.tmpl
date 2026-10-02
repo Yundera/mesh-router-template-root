@@ -2,7 +2,7 @@
 # Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/auth/dex/config.yaml
 # on every self-check. DO NOT edit the rendered file — edit this template and let
 # the self-check re-render it. Substituted tokens: ${DOMAIN} and
-# ${AUTHELIA_DEX_SECRET} (minted by ensure-authelia.sh, which runs just before).
+# ${DEX_SESSION_KEY} (minted by ensure-dex-session-key.sh, which runs just before).
 
 issuer: https://auth-${DOMAIN}
 
@@ -101,19 +101,20 @@ sessions:
 # secrets), and apps re-register on every login, so the client list here is
 # disposable cache that rebuilds itself.
 
-# EVERY connector is appended by ensure-dex.sh — none are declared here, and the
-# key below is deliberately left with no items.
+# EVERY connector is a drop-in in connectors.d/, appended by ensure-dex.sh — none
+# are declared here, and the key below is deliberately left with no items.
 #
-# "Local Account" (Authelia) used to live here as a static entry. It moved into
-# the script because it is now CONDITIONAL: a freshly-installed box seeds its
-# owner account `disabled: true` (unclaimed), and Authelia refuses a disabled
-# user as "user not found". Rendering the button unconditionally meant a brand
-# new box advertised a login that could not possibly work.
+# "Local Account" (Authelia) used to live here as a static entry. It is now the
+# drop-in authelia.yaml, written by ensure-connector-local-account.sh, because it
+# is CONDITIONAL: a freshly-installed box seeds its owner account
+# `disabled: true` (unclaimed), and Authelia refuses a disabled user as "user not
+# found". Rendering the button unconditionally meant a brand new box advertised a
+# login that could not possibly work.
 #
 # The `casaos` connector is long gone with CasaOS and its oidc bridge.
 #
-# An empty `connectors:` is valid YAML for Dex and is a legitimate transient
-# state (unclaimed, with no drop-in), not a config error. ensure-dex.sh logs
-# loudly when it renders one, since it means nobody can log in interactively
-# until the account is claimed.
+# NO DROP-IN AT ALL (unclaimed, nothing else configured) is a legitimate state,
+# but Dex REFUSES to start on it ("server: no connectors specified"). So the
+# config is still rendered, and ensure-dex.sh keeps the dex container absent until
+# a connector exists (dex_wanted, library/common.sh).
 connectors:

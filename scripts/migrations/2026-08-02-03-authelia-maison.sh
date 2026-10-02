@@ -48,6 +48,10 @@ if [ -x "$SELF_DIR/../self-check/ensure-authelia.sh" ] || [ -f "$SELF_DIR/../sel
     bash "$SELF_DIR/../self-check/ensure-authelia.sh" || \
         echo "WARN: ensure-authelia.sh failed here; pass 2 will retry"
 fi
+if [ -f "$SELF_DIR/../self-check/ensure-connector-local-account.sh" ]; then
+    bash "$SELF_DIR/../self-check/ensure-connector-local-account.sh" || \
+        echo "WARN: ensure-connector-local-account.sh failed here; pass 2 will retry"
+fi
 if [ -f "$SELF_DIR/../self-check/ensure-dex.sh" ]; then
     echo "Re-rendering Dex config from the new tree..."
     bash "$SELF_DIR/../self-check/ensure-dex.sh" || \

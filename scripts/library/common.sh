@@ -527,3 +527,35 @@ restart_if_bound() {
     fi
     docker restart "$name" >/dev/null 2>&1 || true
 }
+
+# --- Dex presence ------------------------------------------------------------
+# Dex refuses to start with an empty `connectors:` list ("failed to initialize
+# server: server: no connectors specified") — and that is a normal state, not a
+# misconfiguration: an unclaimed box with no drop-in in connectors.d/ has none.
+# A Dex left to crash-loop there failed the auth stack's settle check, and with it
+# every fresh install whose owner account starts unclaimed (2026-10-02).
+#
+# So with no connector the `dex` container does not exist at all: the auth stack is
+# brought up with `--scale dex=0`, which removes it. Absent rather than stopped,
+# because a stopped container is still started again by every `up` and every
+# `docker restart`, and is reported as broken by wait_stack_settled and by
+# mesh-console. Its state is on the bind mount, so removing it loses nothing. With
+# Dex gone its Caddy labels go too: auth-${DOMAIN} falls to the catch-all (Maison's
+# AppShield gate), and every gate shows its "sign-in unavailable" page.
+#
+# ensure-dex.sh decides, from the config it just rendered, and records the
+# decision here; ensure-auth-stack.sh reads it back for its `up`.
+DEX_CONNECTOR_COUNT_FILE="$DEX_HOME/connector-count"
+
+# Prints 1 when the dex container should exist, 0 when it should not.
+# Fails OPEN: no record (ensure-dex.sh has not run on this tree yet) or an
+# unreadable one means 1 — today's behaviour, never a Dex removed on a guess.
+dex_wanted() {
+    local count
+    count="$(cat "$DEX_CONNECTOR_COUNT_FILE" 2>/dev/null || true)"
+    case "$count" in
+        ''|*[!0-9]*) echo 1 ;;
+        0) echo 0 ;;
+        *) echo 1 ;;
+    esac
+}

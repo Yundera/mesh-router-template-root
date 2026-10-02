@@ -176,17 +176,20 @@ still reaches them by name on `pcs`. The stack's web UI, auth-console, is part o
 - Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
   `dex-internal` network via the network-scoped `dex-grpc` alias, never `pcs` and
   never `0.0.0.0`. That network belongs to the auth stack; nothing outside it joins.
-- **Extending it.** Drop a connector into
+- **Extending it.** Every connector is a drop-in in
   `${DATA_ROOT}/AppData/auth/dex/connectors.d/*.yaml` (runtime dir, so a template
-  update never reverts it) and it is concatenated into Dex's config on the next
-  self-check. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
+  update never reverts it), concatenated into Dex's config on the next self-check.
+  The template's own Local Account connector is one too (`authelia.yaml`, written by
+  `ensure-connector-local-account.sh`); add yours the same way. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
   discovery document **at startup and treats a failure as fatal**, so a drop-in
   pointing at an issuer that is down takes down *all* interactive login on the box.
 
 #### Claiming the login
 
 A newly-installed server seeds its owner account **unclaimed** — the account exists
-but is disabled, and Dex renders **no sign-in button at all** until it is claimed.
+but is disabled, and has **no Local Account connector** until it is claimed. With no
+other connector either, Dex cannot start, so it is simply not running: every app's
+sign-in page says sign-in is unavailable, and links to `SETUP_URL` when one is set.
 That is deliberate: there is no default password to guess, and nothing advertises a
 login that cannot work.
 
@@ -477,6 +480,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |
 | `PLATFORM_PROJECTS` | `mesh,auth,maison,mesh-console` | Compose projects Mesh Console lists as platform containers |
 | `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | _(unset)_ | For a box run by an operator: the control-plane URL the Access page reads the support SSH key from, and the key-comment host suffixes it marks as trusted. Inert when empty |
+| `SETUP_URL` | _(unset)_ | Where an owner finishes setting the box up. While no sign-in method exists yet (unclaimed, no drop-in connector) every app's sign-in page links there. Inert when empty |
 | `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Resident backup engine Maison execs into, for a deployment that ships one |
 
 `PROVIDER_STR`, `DEFAULT_PWD` and `SELF_CHECK_CRON` were previously named `PROVIDER`,

@@ -228,7 +228,7 @@ services:
   # this is invisible.
   # =============================================================================
   auth-registrar:
-    image: ghcr.io/yundera/mesh-auth:1.1.7
+    image: ghcr.io/yundera/mesh-auth:1.1.8
     container_name: auth-registrar
     hostname: auth-registrar
     cpu_shares: 40
@@ -277,13 +277,21 @@ services:
       # Needs mesh-auth >= 1.1.4; older images ignore this and apps keep the
       # pre-existing bounce-to-<app>-${DOMAIN} behaviour.
       ROOT_CLIENT_ID: "${DEFAULT_SERVICE_HOST:-maison}"
+      # Where an owner finishes setting the box up. While Dex is absent (no
+      # connector yet — see dex_wanted in scripts/library/common.sh) /register
+      # answers 503 login_unavailable with this URL, and every AppShield gate
+      # (>= 3.2.0) shows a "finish setup" link on its sign-in-unavailable page.
+      # Empty on a stock box: install.sh claims the account, so there is nothing
+      # to finish in a browser. Needs mesh-auth >= 1.1.8.
+      SETUP_URL: "${SETUP_URL:-}"
     expose:
       - "9092"
     networks:
       pcs: null            # /register from app sidecars + PTR attestation
       dex-internal: null   # gRPC to Dex
-    depends_on:
-      - dex
+    # NO depends_on: dex. Dex is absent while it has no connector (dex_wanted), and
+    # a depends_on would make every `up` of this stack start it again. The
+    # registrar dials Dex lazily and answers 503 login_unavailable while it is gone.
 
   # =============================================================================
   # AUTH-CONSOLE — this stack's web UI (Yundera/auth-console): Account (the local
@@ -309,7 +317,7 @@ services:
   # only logs everyone out of this console.
   # =============================================================================
   auth-console:
-    image: ghcr.io/yundera/appshield:3.1.2
+    image: ghcr.io/yundera/appshield:3.2.0
     container_name: auth-console
     hostname: auth-console
     restart: unless-stopped

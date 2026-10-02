@@ -48,7 +48,7 @@ services:
   # unrouted host and login dead-ends. The gate therefore takes the app's public
   # name; the backend gets the suffix.
   maison:
-    image: ghcr.io/yundera/appshield:3.1.2
+    image: ghcr.io/yundera/appshield:3.2.0
     container_name: maison
     hostname: maison
     restart: unless-stopped

@@ -353,10 +353,16 @@ cmd_claim() {
     set_env_value LOCAL_ADMIN_USER "$username" >/dev/null 2>&1 \
         || echo "WARNING: could not record LOCAL_ADMIN_USER in $ENV_FILE" >&2
 
-    # Surface the Local Account connector now. Failure is non-fatal — the next
-    # self-check tick renders it anyway.
-    if [ -x "$SCRIPTS_DIR/self-check/ensure-dex.sh" ]; then
-        "$SCRIPTS_DIR/self-check/ensure-dex.sh" >/dev/null 2>&1 \
+    # Surface the Local Account connector now: write its drop-in, then let
+    # ensure-dex.sh re-render — which also STARTS Dex on a box where it was absent
+    # for want of any connector. Failure is non-fatal — the next self-check tick
+    # does both anyway.
+    if [ -f "$SCRIPTS_DIR/self-check/ensure-connector-local-account.sh" ]; then
+        bash "$SCRIPTS_DIR/self-check/ensure-connector-local-account.sh" >/dev/null 2>&1 \
+            || echo "WARNING: ensure-connector-local-account.sh failed; the Local Account connector appears at the next self-check" >&2
+    fi
+    if [ -f "$SCRIPTS_DIR/self-check/ensure-dex.sh" ]; then
+        bash "$SCRIPTS_DIR/self-check/ensure-dex.sh" >/dev/null 2>&1 \
             || echo "WARNING: ensure-dex.sh failed; the Local Account connector appears at the next self-check" >&2
     fi
 

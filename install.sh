@@ -859,8 +859,8 @@ if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
     echo "            (forgotten? sudo ${USER_MGR} set-password ${_login:-<username>})"
     unset _login
   else
-    echo "This server is NOT CLAIMED YET: no local account can log in, and the"
-    echo "login page will show no sign-in button. Claim it over SSH with:"
+    echo "This server is NOT CLAIMED YET: no local account can log in, and sign-in"
+    echo "stays unavailable (Dex is not started) until it is. Claim it over SSH with:"
     echo ""
     echo "  sudo ${USER_MGR} claim <username>"
     echo "      (reads the password from stdin, or pass --generate)"

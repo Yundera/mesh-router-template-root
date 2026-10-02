@@ -382,6 +382,10 @@ fi
 # with `invalid_client`, which is a confusing way to find out.
 if [ "$SECRET_JUST_MINTED" -eq 1 ] && [ -f "$SELF_TREE/scripts/self-check/ensure-dex.sh" ]; then
     echo "Secret is new; re-rendering Dex so the connector picks it up"
+    if [ -f "$SELF_TREE/scripts/self-check/ensure-connector-local-account.sh" ]; then
+        bash "$SELF_TREE/scripts/self-check/ensure-connector-local-account.sh" || \
+            log_warn "Local Account connector rewrite failed; the next self-check cycle will retry"
+    fi
     bash "$SELF_TREE/scripts/self-check/ensure-dex.sh" || \
         log_warn "Dex re-render failed; the next self-check cycle will retry"
 fi

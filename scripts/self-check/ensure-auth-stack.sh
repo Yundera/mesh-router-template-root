@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bring the auth stack up: dex, authelia, auth-registrar and auth-console
-# (stacks/auth/).
+# (stacks/auth/). Dex only when it has a connector to serve (dex_wanted).
 #
 # Deployed to ${DATA_ROOT}/AppData/auth through tools/deploy-stack.sh, like maison
 # and terminal. It renders nothing: ensure-authelia.sh and ensure-dex.sh have
@@ -80,7 +80,18 @@ chown -R "$AUTH_CONSOLE_GATE_UID:$AUTH_CONSOLE_GATE_UID" "$AUTH_DIR/auth-console
 dex_id() { docker container inspect -f '{{.Id}}' dex 2>/dev/null || true; }
 DEX_BEFORE="$(dex_id)"
 
-"$SCRIPTS_DIR/tools/deploy-stack.sh" auth "$AUTH_DIR" || FAILED=1
+# NO CONNECTOR, NO DEX. ensure-dex.sh recorded how many connectors it rendered;
+# with none, Dex cannot start, so the stack comes up without it — `--scale dex=0`
+# also removes a dex left over from before (see dex_wanted, library/common.sh).
+# The settle check below then has nothing to wait for, and the restart block
+# finds no container.
+DEX_UP_ARGS=""
+if [ "$(dex_wanted)" = "0" ]; then
+    DEX_UP_ARGS="--scale dex=0"
+    echo "Dex has no connector yet; bringing the auth stack up without it"
+fi
+
+DEPLOY_UP_ARGS="$DEX_UP_ARGS" "$SCRIPTS_DIR/tools/deploy-stack.sh" auth "$AUTH_DIR" || FAILED=1
 
 # DEX MUST NOT START BEFORE AUTHELIA ANSWERS. Dex opens every connector once, at
 # startup, and the Local Account connector's issuer is Authelia: one it could not

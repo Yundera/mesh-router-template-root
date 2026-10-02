@@ -21,11 +21,15 @@ ensure-template-sync.sh
 # Stack
 ensure-public-ip.sh
 ensure-email-synced.sh
-# ensure-authelia.sh MUST run before ensure-dex.sh: it mints AUTHELIA_DEX_SECRET
-# into .env, which ensure-dex.sh interpolates into the Dex "Local Account"
-# connector's clientSecret. Both run BEFORE ensure-auth-stack.sh so each service
-# finds its config on first start.
+# ensure-authelia.sh MUST run before ensure-connector-local-account.sh: it mints
+# AUTHELIA_DEX_SECRET into .env, which that script writes into the Dex "Local
+# Account" connector's clientSecret. All of them run BEFORE ensure-auth-stack.sh
+# so each service finds its config on first start.
 ensure-authelia.sh
+# Dex connectors are drop-ins, one ensure-connector-* script each, all BEFORE
+# ensure-dex.sh: it appends whatever connectors.d/ holds and, with nothing there,
+# keeps Dex absent (it cannot start on an empty list).
+ensure-connector-local-account.sh
 # ensure-dex-session-key.sh MUST run before ensure-dex.sh: it mints
 # DEX_SESSION_KEY into .env, which ensure-dex.sh interpolates into
 # `sessions.cookieEncryptionKey`. Unset renders an empty key, which Dex accepts
@@ -37,6 +41,7 @@ ensure-stack-pulled.sh
 # ensure-stack-up.sh also creates the `pcs` network every stack joins as external.
 ensure-stack-up.sh
 # The auth stack (dex, authelia, auth-registrar) — split out of the mesh stack.
+# Dex only when ensure-dex.sh rendered a connector (dex_wanted).
 # MUST stay after ensure-stack-up.sh (Caddy routes auth-* and local-auth-*, smtp
 # relays Authelia's mail) and after the renders above. Its first run is the
 # cutover: it evicts the mesh-project copies of those containers and recreates

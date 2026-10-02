@@ -22,7 +22,7 @@ template (`Yundera/template-root`, provisioned by `pcs-orchestrator`).
 |---|---|
 | The admin app (`settings-center-app`) | A managed-PCS surface. This template's admin interface is the shell. What was "phase 4" below is cancelled, not deferred. |
 | Yundera-cloud integration | `YUNDERA_API`, `USER_JWT`, `OPERATOR_API`, the support key, `ensure-yundera-user-data.sh` - all assume a control plane this product does not have. |
-| The "Yundera Login" connector | `ensure-yundera-login.sh` federates to Yundera's IdP. The `connectors.d/` mechanism it used IS ported, so a fork can add its own; the connector is not. |
+| The "Yundera Login" connector | `ensure-connector-yundera.sh` (formerly `ensure-yundera-login.sh`) federates to Yundera's IdP. The `connectors.d/` mechanism it used IS ported, so a fork can add its own; the connector is not. |
 | Backup / kopia | The credentials come from `YUNDERA_API` with a `USER_JWT`. Porting it means designing a bring-your-own-storage path first - a separate piece of work. |
 
 The three-file env split (`.pcs.env` / `.pcs.secret.env` / `.ynd.user.env`) is also
@@ -505,8 +505,14 @@ The Local Account connector moved out of `dex.config.yaml.tmpl` into
 `ensure-dex.sh` and is now conditional on claimed-ness, which is also what makes
 the `connectors.d/` drop-in mechanism possible (drop-ins cannot be appended to a
 template whose `connectors:` key already has inline items). An unclaimed box
-renders **zero** connectors, which is valid YAML and a legitimate transient state;
-the script logs it loudly with the exact fix command.
+renders **zero** connectors. That is a legitimate transient state, but Dex refuses to
+start on it ("server: no connectors specified"), so the script logs it loudly with the
+exact fix command and keeps the `dex` container **absent** until a connector exists
+(`dex_wanted`, `library/common.sh`; the auth stack comes up with `--scale dex=0`).
+Before 2026-10-02 Dex was left to crash-loop there, which failed the auth stack's
+settle check and every fresh Yundera create. Since then Local Account is itself a
+drop-in, `connectors.d/authelia.yaml`, written by `ensure-connector-local-account.sh`:
+`ensure-dex.sh` owns no connector.
 
 `authentication_backend.file.watch: true` was added to the Authelia config: the
 user manager rewrites `users_database.yml` from the host, and without `watch` a
@@ -741,8 +747,9 @@ has the whole picture).
   issuer is gateway-routed the same way. Real fix is ordering, or lazy connector opening.
 
   Release 5 narrows the window without meaning to: an **unclaimed** box renders no
-  connectors at all, so there is nothing for Dex to resolve on that first boot. The
-  loop is back the moment the box is claimed.
+  connectors at all, so there is nothing for Dex to resolve on that first boot (since
+  2026-10-02 Dex is not even started then). The loop is back the moment the box is
+  claimed.
 - **Repin Dex to a release.** The digest pin is a `master` build. Repin as soon as an
   upstream release carries PR #4674 and PR #4945 (expected > v2.45.1). Tracked here
   rather than only in the compose comment, so it surfaces on the next pass.
@@ -764,7 +771,7 @@ that is not ours:
 in `library/common.sh`.
 
 Nor the pieces listed in the scope table at the top: the admin app and its
-`ensure-admin-user.sh` / `ensure-admin-gate-secret.sh`, `ensure-yundera-login.sh`,
+`ensure-admin-user.sh` / `ensure-admin-gate-secret.sh`, `ensure-connector-yundera.sh`,
 `ensure-maison-yundera-mirror.sh` (unnecessary since phase 3 made this stack a managed
 tile), and the whole backup/kopia set (`ensure-backup-{config,credentials}.sh`,
 `ensure-kopia-stack.sh`, `stacks/kopia/`, `library/kopia.sh`).

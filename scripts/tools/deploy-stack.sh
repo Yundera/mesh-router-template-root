@@ -15,6 +15,10 @@
 #      one — the place for work that has to see the deployed compose file and the
 #      evicted state, and must happen before `up` (the auth stack uses it).
 #
+# DEPLOY_UP_ARGS (environment, optional): extra arguments for that `up`, split on
+# whitespace. The auth stack passes `--scale dex=0` through it when Dex has no
+# connector (see dex_wanted in library/common.sh).
+#
 # THE STACK IS NOT READ FROM $SCRIPTS_DIR. ensure-template-sync.sh propagates only
 # docker-compose.yml, the Caddyfile and scripts/ to live locations — stacks/ is not
 # among them, and does not need to be: template/ is a pristine copy of the whole
@@ -161,7 +165,9 @@ run_with_backoff() {
 
 # Serialise layer streams — a single reset shouldn't poison N concurrent pulls.
 pull_once() { COMPOSE_PARALLEL_LIMIT=1 compose pull; }
-up_once()   { compose up --quiet-pull --remove-orphans -d; }
+# shellcheck disable=SC2206 # word splitting is the point
+UP_EXTRA=(${DEPLOY_UP_ARGS:-})
+up_once()   { compose up --quiet-pull --remove-orphans -d "${UP_EXTRA[@]}"; }
 
 run_with_backoff "pull" pull_once
 # Every stack joins `pcs` as external (see ensure_pcs_network in library/common.sh).
