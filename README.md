@@ -17,174 +17,28 @@ This repository provides a template `docker-compose.yml` file used by mesh-dashb
 | `%DEFAULT_PASSWORD%` | Platform secret consumed by app-store apps via `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD` | `generated-password` |
 | `%EMAIL%` | User's email address | `user@example.com` |
 
-## Services Included
+## Stacks
 
-### mesh-router-tunnel
+The template deploys four compose stacks. Each has a README next to its compose file
+that covers what the services do, how their config is rendered, what is state and
+what is cache, and the known traps. The self-check copies each README into the
+stack's folder on the box, next to the running compose file.
 
-WireGuard VPN tunnel to the provider for NAT traversal.
+| Stack | Services | Source | On the box |
+|---|---|---|---|
+| `mesh` | mesh-router-tunnel, -agent, -caddy, smtp, mesh-console | `docker-compose.yml`, `Caddyfile` | `/DATA/AppData/mesh` — [README](stacks/mesh/README.md) |
+| `auth` | dex, authelia, auth-registrar, auth-console | `stacks/auth/` | `/DATA/AppData/auth` — [README](stacks/auth/README.md) |
+| `maison` | maison (gate), maison-app | `stacks/maison/` | `/DATA/AppData/maison` — [README](stacks/maison/README.md) |
+| `terminal` | terminal (gate), terminal-ttyd | `stacks/terminal/` | `/DATA/AppData/terminal` — [README](stacks/terminal/README.md) |
 
-- Forwards traffic to local Caddy instance
-- Requires NET_ADMIN and SYS_MODULE capabilities
-- Uses `%PROVIDER_STR%` for authentication
+Every stack joins the shared `pcs` bridge network as `external: true`. The self-check
+creates that network (`ensure_pcs_network` in `scripts/library/common.sh`) before the
+first stack comes up, so no stack owns it and the stacks can start in any order.
+Requests reach the box through `mesh-router-tunnel` or `mesh-router-agent`, which hand
+them to `mesh-router-caddy`. Caddy routes each hostname to a container using
+the `caddy_*` labels on that container.
 
-### mesh-router-agent
-
-Direct IP registration for low-latency routing.
-
-- Registers public IP with mesh-router-backend
-- Falls back to tunnel if direct routing unavailable
-- Uses `%PUBLIC_IP%` and `%PROVIDER_STR%`
-
-### caddy
-
-Reverse proxy with automatic SSL certificate management.
-
-- Uses [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker-proxy)
-- Discovers services via Docker labels
-- Handles TLS termination
-- Base config comes from this repo's `Caddyfile`, synced to
-  `${DATA_ROOT}/AppData/mesh/Caddyfile` and bind-mounted at `/etc/caddy/Caddyfile`.
-  It holds the global options, the `(gateway_tls)` snippet, and the three
-  **root-domain** routes — see [Root domain routing](#root-domain-routing).
-
-#### Root domain routing
-
-The three root addresses — `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io`,
-`${PUBLIC_IP_DASH}.sslip.io` — are defined **only** in the `Caddyfile`, and point at
-whatever `DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT` names in `.env` (default
-`maison:80`). The same pair is also the target of the custom-domain catch-all
-that `mesh-router-caddy` injects via its Admin API.
-
-To hand the root domain to an installed app:
-
-```bash
-# /DATA/AppData/mesh/.env
-DEFAULT_SERVICE_HOST=my-app     # container name, or host.docker.internal for a host port
-DEFAULT_SERVICE_PORT=3000
-```
-
-then run the self-check (`sudo bash /DATA/AppData/mesh/scripts/self-check.sh`). It
-recreates both readers of the setting: `mesh-router-caddy` (mesh stack) and
-`auth-registrar` (auth stack, whose `.env` is regenerated from the mesh one). A bare
-`cd /DATA/AppData/mesh && docker compose up -d` moves the route at once, but logins on
-the bare domain keep bouncing to `<app>-${DOMAIN}` until the auth stack follows on the
-next self-check.
-
-- The target container **must be attached to the `pcs` network** — Caddy resolves it by
-  Docker DNS. A container that isn't on `pcs`, or a typo, gives a 502 on the root domain
-  and nothing else to explain it.
-- **No container may claim a root address via a `caddy_*` label.** caddy-docker-proxy
-  merges site blocks that share an address, so a second claim leaves the apex with two
-  `reverse_proxy` handlers and makes this setting meaningless. Services get their own
-  `<name>-${DOMAIN}` hostname instead.
-- The dashboard stays reachable at `maison-${DOMAIN}` whatever this is set to.
-
-### maison (dashboard)
-
-The CasaOS replacement: the same app grid and the same CasaOS App Store format, in a
-single Go binary driving the Docker socket. Deployed as its **own compose stack** to
-`${DATA_ROOT}/AppData/maison` by `scripts/self-check/ensure-maison-stack.sh`, not as
-part of the mesh stack — it attaches to the shared `pcs` network (see
-[Network Configuration](#network-configuration)).
-
-- Reachable at `maison-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants), and it is
-  what the root domain points at by default (`DEFAULT_SERVICE_HOST=maison`).
-- **No authentication of its own** and it mounts the Docker socket, so it is never
-  published: the AppShield gate in the same stack is the only route in, and that gate
-  federates through Dex to Authelia. Never add a `ports:` mapping to it.
-- What apps receive on install — network, domain, public IP, default password — comes
-  from `${DATA_ROOT}/AppData/maison/.env.app`, regenerated from the mesh `.env` on
-  every self-check.
-- Apps installed by CasaOS before it was removed were copied into Maison's layout
-  (`${DATA_ROOT}/AppData/<app>`) by the now-retired `ensure-maison-app-mirror.sh`, and
-  Maison manages them there. The originals under `/DATA/AppData/casaos/apps/<app>` are
-  left in place, unread.
-
-### mesh-console (the stack's web UI)
-
-The mesh stack's own web UI ([Yundera/mesh-console](https://github.com/Yundera/mesh-console)),
-and what the **Mesh Router** tile opens: public IP and domain, how the gateways route to
-the box (**direct** / **tunnel** / **offline**, with the registered routes, tunnel
-handshake age, mesh certificate expiry and a root-domain probe), whether the template is
-up to date with an **Update now** button that runs the self-check, and the root-domain
-default application. Two services of the mesh stack itself (`mesh-console`, the AppShield
-gate, and `mesh-console-app`) — not a stack of its own.
-
-- Reachable at `mesh-console-${DOMAIN}` (plus the `nip.io` / `sslip.io` variants).
-- **Admins only**, checked twice: its AppShield gate refuses accounts outside `admins`
-  (`OIDC_REQUIRED_GROUPS`), and the app verifies the gate's signed identity assertion
-  (`MESH_CONSOLE_ASSERTION_SECRET`, minted into the mesh `.env` by
-  `ensure-stack-up.sh` right before the stack comes up).
-- It holds the Docker socket and reads the mesh root **read-only**. Its two host
-  actions both call this template's own scripts — `scripts/self-check.sh`, and
-  `scripts/tools/set-default-app.sh <host> <port>`, which stores the setting in the mesh
-  `.env` and re-runs `ensure-stack-up.sh` then `ensure-auth-stack.sh` (Caddy's root route
-  and auth-registrar's `ROOT_CLIENT_ID`). They run as a one-shot privileged
-  `mesh-console-runner` container in the host's namespaces. There is no generic command
-  path. Yundera/template-root ships the same tool for its own layout.
-- The Update page compares `template/.revision.json` (written by
-  `ensure-template-sync.sh` after each sync: `{url, commit, synced_at}`) with the head of
-  the `UPDATE_URL` branch on GitHub.
-
-### dex / authelia / auth-registrar (SSO) — the `auth` stack
-
-Single sign-on for apps installed on the PCS. Apps delegate login via OIDC instead of
-holding their own credentials.
-
-These three are their **own compose stack**, `auth` (`stacks/auth/`), deployed to
-`${DATA_ROOT}/AppData/auth` by `scripts/self-check/ensure-auth-stack.sh` right after the
-mesh stack. That directory is the stack's whole home: the generated `docker-compose.yml`
-and `.env`, and the state — `authelia/` and `dex/` (the rendered login theme sits inside
-it, at `dex/frontend/`). Until 2026-10-01 the state was in the mesh root (`auth/`, `dex/`,
-`dex-frontend/`); a box that still has it there gets it renamed across on its next
-self-check, with nothing stopped. Container names are unchanged, so everything else
-still reaches them by name on `pcs`. The stack's web UI, auth-console, is part of it too
-(below), and the **Auth** tile in Maison opens it.
-
-- **dex** — OIDC identity broker at `https://auth-${DOMAIN}` (discovery at
-  `/.well-known/openid-configuration`). A pure broker: it holds no credential of its
-  own, and renders a connector-chooser login page themed from `dex-theme/`. It keeps
-  its own 30-day browser session, so it advertises `end_session_endpoint` and
-  back-channel logout — one logout ends every app through the spec.
-- **authelia** — the PCS-local credential store at `https://local-auth-${DOMAIN}`,
-  federated by Dex as the "Local Account" connector. Owns the account that used to
-  live in CasaOS. Its own login page carries the password-reset link, which mails
-  through the `smtp` relay in the mesh stack. Exactly one OIDC client (Dex); per-app
-  clients stay on Dex's gRPC path.
-- **auth-registrar** — apps self-register as OIDC clients (`POST /register` to
-  `http://auth-registrar:9092`, internal only); the registrar creates the client in Dex
-  over its gRPC API. Caller identity comes from a PTR lookup of the source container
-  name, never from the request body.
-- Provisioned by `ensure-authelia.sh` (secrets, JWKS key, config, admin seed, and its
-  own Dex connector) and `ensure-dex.sh` (session key, config render), in that order —
-  Authelia mints the `AUTHELIA_DEX_SECRET` that its connector carries. Dex's data under
-  `${DATA_ROOT}/AppData/auth/dex` is cache and safe to delete (except
-  `connectors.d/`, below); Authelia's under `${DATA_ROOT}/AppData/auth/authelia` holds
-  the local account — back it up.
-- **auth-console** ([Yundera/auth-console](https://github.com/Yundera/auth-console)) —
-  the identity console at `https://auth-console-${DOMAIN}`: **Account** (your own
-  account, and for admins the local Authelia users: add, reset password, change email,
-  revoke) and **Access** (host Linux accounts, their SSH keys, login history; add or
-  remove a key, with a lockout warning before the last `user-` key goes). Two services:
-  the AppShield gate `auth-console` and the app `auth-console-app`. Unlike mesh-console
-  the gate does not require the `admins` group — every user may reach their own Account
-  page; admin-only routes are enforced by the app. Host actions run through the
-  template's own `authelia-user-manager.sh` and fixed key scripts, in a one-shot
-  privileged `auth-console-runner` container in the host's namespaces (no SSH). Claiming
-  the login stays on the command line (below). The console is optional to login: if it
-  is down, every other app still logs in.
-- Dex's gRPC client API is unauthenticated and is therefore bound to the isolated
-  `dex-internal` network via the network-scoped `dex-grpc` alias, never `pcs` and
-  never `0.0.0.0`. That network belongs to the auth stack; nothing outside it joins.
-- **Extending it.** Every connector is a drop-in in
-  `${DATA_ROOT}/AppData/auth/dex/connectors.d/*.yaml` (runtime dir, so a template
-  update never reverts it), concatenated into Dex's config on the next self-check.
-  The template's own Local Account connector is one too (`authelia.yaml`, written by
-  `ensure-authelia.sh`); add yours the same way. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
-  discovery document **at startup and treats a failure as fatal**, so a drop-in
-  pointing at an issuer that is down takes down *all* interactive login on the box.
-
-#### Claiming the login
+## Claiming the login
 
 A newly-installed server seeds its owner account **unclaimed** — the account exists
 but is disabled, and has **no Local Account connector** until it is claimed. With no
@@ -215,31 +69,6 @@ script also does `list`, `add`, `delete`, `set-password` and `set-email`.
 **This is NOT `DEFAULT_PWD`.** That is an app-seed secret handed to every app this
 box installs (`$APP_DEFAULT_PASSWORD` and friends); using it as the human login would
 put your own password in every app's environment.
-
-**REMOVED:** `casaos`, and with it `casaos-oidc-bridge` and the disposable Dex
-break-glass admin. Authelia is the local credential now, so the bridge was a second
-identity for the same person and the break-glass account had nothing left to recover
-from. See [doc/alignment-with-template-root.md](doc/alignment-with-template-root.md).
-
-## Network Configuration
-
-All services connect via the `pcs` bridge network, enabling internal communication.
-Every stack — mesh, auth, maison, terminal — joins it as `external: true`; the
-self-check creates it (`ensure_pcs_network` in `scripts/library/common.sh`) before the
-first stack comes up, so no stack owns it and none has to start first.
-
-```
-External Request
-       │
-       ▼
-   mesh-router-tunnel / mesh-router-agent
-       │
-       ▼
-     caddy (reverse proxy)
-       │
-       ▼
-   maison / other services
-```
 
 ## Usage
 
@@ -473,8 +302,8 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `SELF_CHECK_CRON` | `0 3 * * *` | Nightly schedule; `disabled` removes the cron entry |
 | `EMAIL_SYNC` | `true` | Set `false` when `EMAIL` is provisioned by an operator rather than looked up from the mesh backend: `ensure-email-synced.sh` then leaves it alone |
 | `MESH_UPDATE_CHANNEL` / `MESH_TEMPLATE_URL` | _(unset)_ | **Deprecated** pre-rename keys, still read as fallbacks for one release. Migrated to `UPDATE_URL` automatically |
-| `DEFAULT_SERVICE_HOST` | `casaos` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [Root domain routing](#root-domain-routing) |
-| `DEFAULT_SERVICE_PORT` | `8080` | Port that container listens on |
+| `DEFAULT_SERVICE_HOST` | `maison` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [the mesh stack README](stacks/mesh/README.md) |
+| `DEFAULT_SERVICE_PORT` | `80` | Port that container listens on |
 | `PUBLIC_IP_MODE` | `egress` | How `ensure-public-ip.sh` finds this box's address. `egress`: ask the outside world which address the box connects from — right behind NAT (a home server with forwarded ports). `interface`: take the globally-routable address on a local interface and nothing else — right for a cloud VM, where the egress address can be an upstream NAT gateway that is not this machine; an address the backend cannot ping is dropped, and IPv6 is used when the box has no public IPv4 of its own |
 | `BRAND_NAME` | _(unset)_ | Product name shown as the TOTP issuer and on the password-reset mail. Unset, the box names itself by its domain |
 | `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |

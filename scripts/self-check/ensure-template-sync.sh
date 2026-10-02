@@ -154,6 +154,14 @@ cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 
 cp "$TEMPLATE_DIR/docker-compose.yml" "$APP_DIR/docker-compose.yml"
 
+# The mesh stack's README beside its live compose file — the other stacks get theirs
+# from deploy-stack.sh. Its source sits under stacks/mesh/ because the repo root's
+# README.md is the installer's. Documentation only: a failed copy fails nothing.
+if [ -f "$TEMPLATE_DIR/stacks/mesh/README.md" ]; then
+    cp "$TEMPLATE_DIR/stacks/mesh/README.md" "$APP_DIR/README.md" \
+        || echo "WARN: could not copy the mesh stack README"
+fi
+
 # Scripts: copy to a temp file in the destination directory, then rename over the
 # target. NEVER a plain `cp` onto the live path — that is the exact opposite of
 # the Caddyfile rule above, and for a good reason.
