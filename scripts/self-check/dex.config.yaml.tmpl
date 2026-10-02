@@ -2,7 +2,7 @@
 # Rendered by ensure-dex.sh (sibling) to ${DATA_ROOT}/AppData/auth/dex/config.yaml
 # on every self-check. DO NOT edit the rendered file — edit this template and let
 # the self-check re-render it. Substituted tokens: ${DOMAIN} and
-# ${DEX_SESSION_KEY} (minted by ensure-dex-session-key.sh, which runs just before).
+# ${DEX_SESSION_KEY} (minted by ensure-dex.sh itself before rendering).
 
 issuer: https://auth-${DOMAIN}
 
@@ -76,7 +76,7 @@ sessions:
   absoluteLifetime: "720h"
   validIfNotUsedFor: "720h"
 
-  # Encrypts the session cookie. Minted by ensure-dex-session-key.sh; must be
+  # Encrypts the session cookie. Minted by ensure-dex.sh; must be
   # 16, 24 or 32 BYTES. Empty is legal and simply leaves cookies unencrypted.
   cookieEncryptionKey: "${DEX_SESSION_KEY}"
 
@@ -105,7 +105,7 @@ sessions:
 # are declared here, and the key below is deliberately left with no items.
 #
 # "Local Account" (Authelia) used to live here as a static entry. It is now the
-# drop-in authelia.yaml, written by ensure-connector-local-account.sh, because it
+# drop-in authelia.yaml, written by ensure-authelia.sh, because it
 # is CONDITIONAL: a freshly-installed box seeds its owner account
 # `disabled: true` (unclaimed), and Authelia refuses a disabled user as "user not
 # found". Rendering the button unconditionally meant a brand new box advertised a

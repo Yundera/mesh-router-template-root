@@ -155,9 +155,9 @@ still reaches them by name on `pcs`. The stack's web UI, auth-console, is part o
   `http://auth-registrar:9092`, internal only); the registrar creates the client in Dex
   over its gRPC API. Caller identity comes from a PTR lookup of the source container
   name, never from the request body.
-- Provisioned by `ensure-authelia.sh` (secrets, JWKS key, config, admin seed) and
-  `ensure-dex.sh` (config render), in that order — Authelia mints the
-  `AUTHELIA_DEX_SECRET` that Dex's connector needs. Dex's data under
+- Provisioned by `ensure-authelia.sh` (secrets, JWKS key, config, admin seed, and its
+  own Dex connector) and `ensure-dex.sh` (session key, config render), in that order —
+  Authelia mints the `AUTHELIA_DEX_SECRET` that its connector carries. Dex's data under
   `${DATA_ROOT}/AppData/auth/dex` is cache and safe to delete (except
   `connectors.d/`, below); Authelia's under `${DATA_ROOT}/AppData/auth/authelia` holds
   the local account — back it up.
@@ -180,7 +180,7 @@ still reaches them by name on `pcs`. The stack's web UI, auth-console, is part o
   `${DATA_ROOT}/AppData/auth/dex/connectors.d/*.yaml` (runtime dir, so a template
   update never reverts it), concatenated into Dex's config on the next self-check.
   The template's own Local Account connector is one too (`authelia.yaml`, written by
-  `ensure-connector-local-account.sh`); add yours the same way. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
+  `ensure-authelia.sh`); add yours the same way. Read `ensure-dex.sh`'s notes first: Dex resolves every OIDC connector's
   discovery document **at startup and treats a failure as fatal**, so a drop-in
   pointing at an issuer that is down takes down *all* interactive login on the box.
 
@@ -428,8 +428,8 @@ knowing:
    swaps `template/`, copies `docker-compose.yml`, `Caddyfile` and `scripts/` to their live
    locations (auto-update)
 4. **Stack** — re-detect public IP (updates `.env` if changed), provision Authelia
-   (`ensure-authelia.sh`: secrets, JWKS key, config, owner-account seed), mint the Dex
-   session key, provision Dex SSO (`ensure-dex.sh`: render config, append connectors,
+   (`ensure-authelia.sh`: secrets, JWKS key, config, owner-account seed, Local Account
+   connector), provision Dex SSO (`ensure-dex.sh`: session key, render config, append connectors,
    provision the login theme), `docker compose pull`, `up -d` of the mesh stack (which also
    creates the shared `pcs` network), then the auth stack (`ensure-auth-stack.sh`), then the
    auxiliary stacks (Maison, Terminal)

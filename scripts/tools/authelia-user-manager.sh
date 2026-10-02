@@ -192,7 +192,7 @@ hash_password() {
 #
 # Deliberately a property of the FILE rather than of a particular username, so it
 # survives the rename that `claim` performs and stays correct once there are
-# several accounts. ensure-dex.sh evaluates the same predicate to decide whether
+# several accounts. ensure-authelia.sh evaluates the same predicate to decide whether
 # to offer the Local Account connector — keep the two in sync.
 is_claimed() {
     local enabled
@@ -357,9 +357,9 @@ cmd_claim() {
     # ensure-dex.sh re-render — which also STARTS Dex on a box where it was absent
     # for want of any connector. Failure is non-fatal — the next self-check tick
     # does both anyway.
-    if [ -f "$SCRIPTS_DIR/self-check/ensure-connector-local-account.sh" ]; then
-        bash "$SCRIPTS_DIR/self-check/ensure-connector-local-account.sh" >/dev/null 2>&1 \
-            || echo "WARNING: ensure-connector-local-account.sh failed; the Local Account connector appears at the next self-check" >&2
+    if [ -f "$SCRIPTS_DIR/self-check/ensure-authelia.sh" ]; then
+        bash "$SCRIPTS_DIR/self-check/ensure-authelia.sh" --connector-only >/dev/null 2>&1 \
+            || echo "WARNING: ensure-authelia.sh --connector-only failed; the Local Account connector appears at the next self-check" >&2
     fi
     if [ -f "$SCRIPTS_DIR/self-check/ensure-dex.sh" ]; then
         bash "$SCRIPTS_DIR/self-check/ensure-dex.sh" >/dev/null 2>&1 \

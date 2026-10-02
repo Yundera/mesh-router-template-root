@@ -437,7 +437,7 @@ upstream but unreleased; v2.45.1 predates both and advertises no logout at all.
 By digest and not `:master` so a push to trunk cannot reach the fleet on its own.
 **Repin to a release as soon as one carries both PRs.**
 
-`ensure-dex-session-key.sh` mints `DEX_SESSION_KEY` — 24 random bytes as base64,
+`ensure-dex.sh` mints `DEX_SESSION_KEY` (folded in from `ensure-dex-session-key.sh`) — 24 random bytes as base64,
 which is exactly 32 ASCII characters. Dex accepts only 16/24/32 **bytes**, so
 `openssl rand -hex 32` (64 chars) would be rejected.
 
@@ -511,7 +511,7 @@ exact fix command and keeps the `dex` container **absent** until a connector exi
 (`dex_wanted`, `library/common.sh`; the auth stack comes up with `--scale dex=0`).
 Before 2026-10-02 Dex was left to crash-loop there, which failed the auth stack's
 settle check and every fresh Yundera create. Since then Local Account is itself a
-drop-in, `connectors.d/authelia.yaml`, written by `ensure-connector-local-account.sh`:
+drop-in, `connectors.d/authelia.yaml`, written by `ensure-authelia.sh`:
 `ensure-dex.sh` owns no connector.
 
 `authentication_backend.file.watch: true` was added to the Authelia config: the

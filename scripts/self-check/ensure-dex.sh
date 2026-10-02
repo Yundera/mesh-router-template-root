@@ -2,10 +2,11 @@
 # ensure-dex.sh - Provision the Dex OIDC broker (the PCS SSO identity provider).
 #
 # Responsibilities (all idempotent):
+#   - generate-once DEX_SESSION_KEY, the session-cookie encryption key,
 #   - render Dex config.yaml from the template every run (tracks DOMAIN changes),
 #   - append every connector drop-in in connectors.d/ — this script owns NO
-#     connector itself; each one is written by its own ensure-connector-* script
-#     (the mesh template ships ensure-connector-local-account.sh),
+#     connector itself; each one is written by the script that owns its issuer
+#     (the mesh template's Local Account: ensure-authelia.sh),
 #   - own the sqlite data dir so the dex container (uid 1001) can write dex.db,
 #   - converge the dex container on the result: ABSENT with no connector (Dex
 #     refuses to start with none), otherwise running on the fresh config.
@@ -74,13 +75,23 @@ fi
 
 mkdir -p "$DEX_ROOT"
 
-# Encrypts Dex's own session cookie (see the `sessions:` block in the template).
-# Minted by ensure-dex-session-key.sh, which scripts-config.txt orders before
-# this script. Empty is tolerated: Dex starts and sessions still work, the cookie
-# is simply not encrypted — so a missing key degrades rather than breaking login.
+# --- session key -------------------------------------------------------------
+# `sessions.cookieEncryptionKey` in the template: Dex keeps a real `dex_session`
+# cookie (DEX_SESSIONS_ENABLED=true), which is what lets it advertise
+# `end_session_endpoint` + back-channel logout, so one logout ends every app.
+#
+# AES, and Dex accepts ONLY 16, 24 or 32 BYTES — a byte-length limit, not a
+# string format: `openssl rand -hex 32` is 64 characters and is rejected. So: 24
+# random bytes as base64, exactly 32 ASCII characters, AES-256. Generate-once.
+#
+# ROTATION invalidates every live Dex session — one round of re-logins across
+# every app on the box. Safe at any time. Nothing to back up: a lost key is
+# re-minted here.
 DEX_SESSION_KEY="$(get_env_value DEX_SESSION_KEY)"
 if [ -z "$DEX_SESSION_KEY" ]; then
-    log_warn "DEX_SESSION_KEY not set yet; Dex session cookies will be unencrypted until ensure-dex-session-key.sh has run"
+    DEX_SESSION_KEY="$(openssl rand -base64 24)"
+    set_env_value DEX_SESSION_KEY "$DEX_SESSION_KEY"
+    log_info "Generated DEX_SESSION_KEY (Dex session cookie encryption)"
 fi
 
 # Literal substitution, NOT envsubst: this installer targets arbitrary boxes and
@@ -110,7 +121,7 @@ printf '%s\n' "$CONTENT" > "$TMP"
 #
 # Shaped like Authelia's clients.d/*.yml: a deployment federates Dex to something
 # this template does not ship without the template knowing anything about it.
-# Known writers: ensure-connector-local-account.sh (authelia.yaml, this template),
+# Known writers: ensure-authelia.sh (authelia.yaml, this template),
 # Yundera's ensure-connector-yundera.sh (yundera.yaml), the Yundera demo
 # (demo-open-entry.yaml).
 #

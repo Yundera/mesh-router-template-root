@@ -14,7 +14,8 @@
 # ${AUTHELIA_DEX_SECRET}, so SSO is down until the next nightly run.
 #
 # What it does, in order:
-#   1. run the NEW tree's ensure-authelia.sh  (mints AUTHELIA_DEX_SECRET, renders config)
+#   1. run the NEW tree's ensure-authelia.sh  (mints AUTHELIA_DEX_SECRET, renders config,
+#                                              writes the Local Account connector)
 #   2. run the NEW tree's ensure-dex.sh       (re-renders with the authelia connector)
 #   3. repoint the root domain casaos:8080 -> maison:80  BEFORE CasaOS goes
 #   4. tear down casaos + casaos-oidc-bridge
@@ -47,10 +48,6 @@ if [ -x "$SELF_DIR/../self-check/ensure-authelia.sh" ] || [ -f "$SELF_DIR/../sel
     echo "Provisioning Authelia from the new tree..."
     bash "$SELF_DIR/../self-check/ensure-authelia.sh" || \
         echo "WARN: ensure-authelia.sh failed here; pass 2 will retry"
-fi
-if [ -f "$SELF_DIR/../self-check/ensure-connector-local-account.sh" ]; then
-    bash "$SELF_DIR/../self-check/ensure-connector-local-account.sh" || \
-        echo "WARN: ensure-connector-local-account.sh failed here; pass 2 will retry"
 fi
 if [ -f "$SELF_DIR/../self-check/ensure-dex.sh" ]; then
     echo "Re-rendering Dex config from the new tree..."

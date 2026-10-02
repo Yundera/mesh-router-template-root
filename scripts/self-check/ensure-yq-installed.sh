@@ -13,7 +13,7 @@
 # read-modify-write over users_database.yml.
 #
 # It is NOT a hard dependency of login. Nothing in the boot path needs yq:
-# ensure-dex.sh's claimed-ness probe treats a missing yq as "claimed" and renders
+# ensure-authelia.sh's claimed-ness probe treats a missing yq as "claimed" and renders
 # the Local Account connector anyway (fail open). Only the user-management verbs
 # — claim, add, delete, set-password — require it, and those are interactive.
 #

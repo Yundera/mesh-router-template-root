@@ -9,7 +9,7 @@ ensure-logrotate.sh
 # Prerequisites
 ensure-docker-installed.sh
 # yq, for tools/authelia-user-manager.sh. Non-fatal if it cannot be installed —
-# nothing in the boot path needs it (ensure-dex.sh's claimed-ness probe fails
+# nothing in the boot path needs it (ensure-authelia.sh's claimed-ness probe fails
 # open without it); only the interactive user-management verbs do.
 ensure-yq-installed.sh
 ensure-env-valid.sh
@@ -21,21 +21,14 @@ ensure-template-sync.sh
 # Stack
 ensure-public-ip.sh
 ensure-email-synced.sh
-# ensure-authelia.sh MUST run before ensure-connector-local-account.sh: it mints
-# AUTHELIA_DEX_SECRET into .env, which that script writes into the Dex "Local
-# Account" connector's clientSecret. All of them run BEFORE ensure-auth-stack.sh
-# so each service finds its config on first start.
+# ensure-authelia.sh also writes Authelia's Dex connector, the "Local Account"
+# drop-in (dex/connectors.d/authelia.yaml), once the owner account is claimed.
+# Dex connectors are drop-ins, each written by the script that owns its issuer,
+# all BEFORE ensure-dex.sh: it mints its session key, appends whatever
+# connectors.d/ holds and, with nothing there, keeps Dex absent (it cannot start
+# on an empty list). Both run BEFORE ensure-auth-stack.sh so each service finds
+# its config on first start.
 ensure-authelia.sh
-# Dex connectors are drop-ins, one ensure-connector-* script each, all BEFORE
-# ensure-dex.sh: it appends whatever connectors.d/ holds and, with nothing there,
-# keeps Dex absent (it cannot start on an empty list).
-ensure-connector-local-account.sh
-# ensure-dex-session-key.sh MUST run before ensure-dex.sh: it mints
-# DEX_SESSION_KEY into .env, which ensure-dex.sh interpolates into
-# `sessions.cookieEncryptionKey`. Unset renders an empty key, which Dex accepts
-# (cookies simply go unencrypted), so this is an ordering requirement rather than
-# a hard dependency.
-ensure-dex-session-key.sh
 ensure-dex.sh
 ensure-stack-pulled.sh
 # ensure-stack-up.sh also creates the `pcs` network every stack joins as external.
