@@ -122,7 +122,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.42
+    image: ghcr.io/yundera/maison:1.1.43
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
