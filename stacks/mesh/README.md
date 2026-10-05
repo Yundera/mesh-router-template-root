@@ -144,8 +144,9 @@ relay too.
 There are three parts: the `mesh-console` gate, the `mesh-console-app` backend, and a
 one-shot privileged `mesh-console-runner` container in the host's namespaces, started by
 the app for host actions. The only host actions are the template's own
-`scripts/self-check.sh` ("Update now") and `scripts/tools/set-default-app.sh`. There is
-no generic command path.
+`scripts/self-check.sh` ("Update now"), `scripts/tools/set-default-app.sh`,
+`scripts/tools/set-update-channel.sh` (the Update page's channel picker) and
+`scripts/tools/migrate.sh`. There is no generic command path.
 
 - **Admins only, checked twice.** The gate requires `OIDC_REQUIRED_GROUPS=admins`. The
   app verifies the gate's signed `X-AppShield-Assertion`
@@ -156,6 +157,9 @@ no generic command path.
 - **Never add `ports:`** to either service. The app holds the Docker socket.
 - The Update page compares `template/.revision.json` (`{url, commit, synced_at}`, written
   by the sync) with the head of the `UPDATE_URL` branch.
+- The channel picker calls `set-update-channel.sh <stable|dev|local|custom> [url]`: it
+  writes `UPDATE_URL` / `MESH_AUTO_UPDATE` (`local` = downloads off) and exits `75` while a
+  self-check runs. It never downloads; the next self-check syncs from the new source.
 - The gate's OIDC back-channel stays on the box: the registrar hands it
   `internal_issuer_url: http://dex:5556`.
 

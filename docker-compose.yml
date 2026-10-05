@@ -230,7 +230,7 @@ services:
       caddy_2.reverse_proxy: "{{upstreams 80}}"
 
   mesh-console-app:
-    image: ghcr.io/yundera/mesh-console:1.3.0
+    image: ghcr.io/yundera/mesh-console:1.4.0
     container_name: mesh-console-app
     hostname: mesh-console-app
     restart: unless-stopped
