@@ -2,7 +2,8 @@
 # MAISON STACK — the dashboard, replacing CasaOS.
 #
 # Deployed to ${DATA_ROOT}/AppData/maison/ by scripts/self-check/ensure-maison-stack.sh,
-# which also generates the .env beside it from the mesh .env, and the .env.app next
+# which also generates the .env beside it from the mesh .env (the keys this file
+# interpolates only), and the .env.app next
 # to that. DO NOT edit the deployed copies — they are overwritten on every self-check.
 #
 # The directory name is dotless on purpose: Maison's managed-app scan of
@@ -153,9 +154,9 @@ services:
       # expects REF_NET and will attach apps to no network at all.
 
       # The store(s) Maison browses, comma-separated. Overridable from the mesh
-      # .env with no change here: deploy-stack.sh copies that file wholesale into
-      # this stack's project directory, so an APPSTORE_URL set there wins over the
-      # default below. It is a BOOT default, not a permanent one: the moment
+      # .env with no change here: deploy-stack.sh carries every key this file
+      # interpolates into the stack's project directory, so an APPSTORE_URL set
+      # there wins over the default below. It is a BOOT default, not a permanent one: the moment
       # anyone edits the source list in the dashboard Maison persists it, and a
       # persisted list takes precedence from then on.
       #

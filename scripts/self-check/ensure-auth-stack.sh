@@ -50,12 +50,14 @@ fi
 # auth-console (the stack's web UI): its gate signs an identity assertion with
 # this key and the app verifies it; the app also signs its session-revocation
 # requests to the gate with it. Unset, the app refuses every request (fails
-# closed). Minted here, right before the deploy copies the mesh .env into the
-# stack's own, so even the cycle that first brings the console in starts it with
-# the key. Nothing to back up — deleting it re-mints it, and only logs everyone
-# out of the console.
-if [ -z "$(get_env_value AUTH_CONSOLE_ASSERTION_SECRET)" ]; then
-    set_env_value AUTH_CONSOLE_ASSERTION_SECRET "$(openssl rand -hex 32)"
+# closed). Minted here into the stack's own .stack.env, right before the deploy
+# builds the stack's .env from it, so even the cycle that first brings the console
+# in starts it with the key. A box that predates .stack.env has it in the mesh .env;
+# it is moved over first. Nothing to back up — deleting it re-mints it, and only
+# logs everyone out of the console.
+stack_env_adopt "$ENV_FILE" "$AUTH_STACK_ENV" AUTH_CONSOLE_ASSERTION_SECRET
+if [ -z "$(get_stack_env_value AUTH_CONSOLE_ASSERTION_SECRET "$AUTH_STACK_ENV")" ]; then
+    stack_env_set AUTH_CONSOLE_ASSERTION_SECRET "$(openssl rand -hex 32)" "$AUTH_STACK_ENV"
     echo "Generated AUTH_CONSOLE_ASSERTION_SECRET"
 fi
 

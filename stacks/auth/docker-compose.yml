@@ -6,7 +6,8 @@
 # Deployed to ${DATA_ROOT}/AppData/auth by scripts/self-check/ensure-auth-stack.sh,
 # which renders nothing itself: ensure-authelia.sh and ensure-dex.sh have already
 # written every config file these services read, and deploy-stack.sh generates the
-# .env beside the deployed copy from the mesh .env. DO NOT edit the deployed copy —
+# .env beside the deployed copy from the mesh .env and auth/.stack.env (the keys
+# this file interpolates only). DO NOT edit the deployed copy —
 # it is overwritten on every self-check.
 #
 # SPLIT OUT OF THE MESH STACK. Container names, hostnames, labels and env are
@@ -312,7 +313,7 @@ services:
   # container name, and the gate's APP_NAME (from its hostname) is the assertion
   # audience — so the gate owns `auth-console` and the backend takes `-app`.
   #
-  # AUTH_CONSOLE_ASSERTION_SECRET is minted into the mesh .env by
+  # AUTH_CONSOLE_ASSERTION_SECRET is minted into auth/.stack.env by
   # ensure-auth-stack.sh right before the deploy; deleting it re-mints it and
   # only logs everyone out of this console.
   # =============================================================================

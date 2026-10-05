@@ -92,6 +92,9 @@ LOG_FILE="${LOG_FILE:-$MESH_ROOT/log/mesh.log}"
 AUTH_STACK_DIR="${DATA_ROOT:-/DATA}/AppData/auth"
 AUTHELIA_HOME="$AUTH_STACK_DIR/authelia"   # users_database.yml, db.sqlite, configuration.yml, secrets/, oidc/
 DEX_HOME="$AUTH_STACK_DIR/dex"             # dex.db, config.yaml, connectors.d/, frontend/
+# The auth stack's own secrets — DEX_SESSION_KEY, AUTHELIA_DEX_SECRET,
+# AUTH_CONSOLE_ASSERTION_SECRET. See "Per-stack state" below.
+AUTH_STACK_ENV="$AUTH_STACK_DIR/.stack.env"
 
 _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -125,6 +128,106 @@ set_env_value() {
             || { touch "$ENV_FILE"; chmod 600 "$ENV_FILE"; }
     fi
     bash "$ENV_MGR" set "$1" "$2" "$ENV_FILE"
+}
+
+# --- Per-stack state: <stack>/.stack.env ----------------------------------------
+#
+# The mesh .env is the box's configuration: identity, owner knobs, values shared by
+# several stacks. A secret a stack's ensure-script mints for that stack ALONE lives
+# in the stack's own folder instead, in .stack.env — the auth stack's in
+# $AUTH_STACK_ENV. Only that stack's scripts write it and nothing regenerates it;
+# deploy-stack.sh builds the stack's .env from the mesh .env and this file, through
+# the same compose-key filter (emit_env_for_compose below).
+
+# Read KEY from a .stack.env (raw value, empty if absent).
+get_stack_env_value() {
+    bash "$ENV_MGR" get "$1" "$2"
+}
+
+# Set KEY=VALUE in a .stack.env, creating it 0600 (owned like the .env files) first:
+# env-file-manager.sh would otherwise create it at the umask, and it holds secrets.
+stack_env_set() {
+    local key="$1" value="$2" file="$3"
+    if [ ! -f "$file" ]; then
+        mkdir -p "$(dirname "$file")"
+        install -m 600 -o "${PUID:-1000}" -g "${PGID:-1000}" /dev/null "$file" 2>/dev/null \
+            || { touch "$file"; chmod 600 "$file"; }
+    fi
+    bash "$ENV_MGR" set "$key" "$value" "$file" >/dev/null
+}
+
+# Move KEYs out of a shared file (the mesh .env) into a stack's .stack.env.
+# Idempotent; done by the scripts that own the keys rather than by a migration, so
+# it also happens on a box with MESH_AUTO_UPDATE=false, where no migration runs.
+#
+#   stack_env_adopt <legacy-file> <stack-env> KEY...
+#
+# - a key only in LEGACY is copied to STACK, read back, then deleted from LEGACY;
+# - a key in both is deleted from LEGACY: STACK wins;
+# - before LEGACY is first modified, it is copied whole to
+#   <legacy>.<YYYY-MM-DD>.old (0600, kept). A template rollback finds the keys gone
+#   and mints new ones (one round of re-logins); the values stay recoverable there.
+stack_env_adopt() {
+    local legacy="$1" stack="$2"
+    shift 2
+    local key value current snapshot=""
+    [ -f "$legacy" ] || return 0
+
+    for key in "$@"; do
+        bash "$ENV_MGR" exists "$key" "$legacy" 2>/dev/null || continue
+        value="$(bash "$ENV_MGR" get "$key" "$legacy")"
+
+        if [ -z "$snapshot" ]; then
+            snapshot="$legacy.$(date +%F).old"
+            if [ ! -e "$snapshot" ]; then
+                cp -p "$legacy" "$snapshot"
+                chmod 600 "$snapshot"
+                log_info "Saved $legacy as $(basename "$snapshot") before moving keys out"
+            fi
+        fi
+
+        if bash "$ENV_MGR" exists "$key" "$stack" 2>/dev/null; then
+            current="$(bash "$ENV_MGR" get "$key" "$stack")"
+            [ "$current" = "$value" ] || log_warn "$key differs between $legacy and $stack - keeping $stack's"
+        elif [ -n "$value" ]; then
+            stack_env_set "$key" "$value" "$stack"
+            if [ "$(bash "$ENV_MGR" get "$key" "$stack")" != "$value" ]; then
+                log_error "stack_env_adopt: $key did not read back from $stack - leaving it in $legacy"
+                return 1
+            fi
+            log_info "Moved $key from $legacy to $stack"
+        fi
+        bash "$ENV_MGR" delete "$key" "$legacy" >/dev/null
+    done
+}
+
+# The variable names a compose file interpolates, one per line, unique. Only
+# ${NAME} references count (every compose file here uses braces); a $${NAME} escape
+# is compose's literal dollar, and a reference on a comment line is not one — so a
+# comment naming ${DEFAULT_PWD} cannot pull a secret into a stack's .env.
+compose_env_keys() {
+    grep -vE '^[[:space:]]*#' "$1" \
+        | grep -oE '(^|[^$])\$\{[A-Za-z_][A-Za-z0-9_]*' | sed -E 's/.*\$\{//' | sort -u
+}
+
+# KEY=value lines for the keys COMPOSE_FILE interpolates, from the mesh .env and
+# then the stack's own .stack.env (later wins: compose keeps the last line for a
+# key), each line verbatim. A stack's .env used to be the WHOLE mesh .env, so the
+# maison and terminal folders carried PROVIDER_STR, DEFAULT_PWD and every console
+# secret for compose files that read none of them. Deriving the list from the
+# compose file means there is no list to keep in step: a new ${VAR} in a compose
+# file is delivered as soon as either file carries it. Ported from
+# Yundera/template-root (scripts/library/env.sh, env_emit_for_compose).
+#
+#   emit_env_for_compose <compose-file> [<stack-env>]
+emit_env_for_compose() {
+    local compose_file="$1" stack_env="${2:-}" keys f
+    keys="$(compose_env_keys "$compose_file" | paste -sd'|' -)"
+    [ -n "$keys" ] || return 0
+    for f in "$ENV_FILE" ${stack_env:+"$stack_env"}; do
+        [ -f "$f" ] || continue
+        grep -E "^(${keys})=" "$f" || true
+    done
 }
 
 # Default branch when nothing is configured.

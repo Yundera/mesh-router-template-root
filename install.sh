@@ -438,7 +438,8 @@ fi
 #
 # Show what was found and get one keypress before touching anything. Deliberately
 # NOT a two-way "reuse this / start fresh" choice: starting fresh would mean
-# discarding DEFAULT_PWD, AUTHELIA_DEX_SECRET and DEX_SESSION_KEY — invalidating
+# discarding DEFAULT_PWD (and, on a box that predates auth/.stack.env,
+# AUTHELIA_DEX_SECRET and DEX_SESSION_KEY) — invalidating
 # every installed app's database password and admin token — which is not
 # something anyone should reach by picking the second menu item. Changing the
 # identity is `--domain` / `--provider`; starting over is uninstall.sh first.
@@ -681,7 +682,7 @@ fi
 #
 # Moving the old file into place first is what makes the "preserving existing keys
 # on re-run" promise true ACROSS the layout change: the box's real state
-# (DEFAULT_PWD, AUTHELIA_DEX_SECRET, DEX_SESSION_KEY, ...) is the base, and this
+# (DEFAULT_PWD, and on an older box the auth secrets, ...) is the base, and this
 # run's values are overlaid on it. Mirrors the APP_DIR fallback in
 # scripts/library/common.sh — keep the two in sync. Moving the DIRECTORY (and
 # leaving the symlink behind) still belongs to the migration.

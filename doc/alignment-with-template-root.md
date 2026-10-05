@@ -734,7 +734,35 @@ has the whole picture).
   on an identity change or `--clean-restart`; a plain re-run — which is how an existing PCS
   adopts this tree — lets the self-check recreate the changed services in place.
 
+## Per-stack state and a filtered `.env` — IMPLEMENTED (unreleased, 2026-10-05)
+
+Both templates now split a stack's env the same way:
+
+- **`<stack>/.stack.env`** (0600, never regenerated) holds what a stack's own
+  ensure-scripts mint for it alone. Here, `auth/.stack.env`: `DEX_SESSION_KEY`
+  (`ensure-dex.sh`), `AUTHELIA_DEX_SECRET` (`ensure-authelia.sh`),
+  `AUTH_CONSOLE_ASSERTION_SECRET` (`ensure-auth-stack.sh`). `MESH_CONSOLE_ASSERTION_SECRET`
+  stays in the mesh `.env`, the mesh stack's own folder. In template-root:
+  `yundera/.stack.env` (`ADMIN_ASSERTION_SECRET`) and `kopia/.stack.env` (`BACKUP_*`).
+- **Each generated `<stack>/.env`** holds only the keys its compose interpolates
+  (`emit_env_for_compose`, ported from template-root's `env_emit_for_compose`), from the
+  mesh `.env` then `.stack.env`, plus `deploy-stack.sh`'s extras. It used to be a
+  wholesale copy, so auth/maison/terminal each carried `PROVIDER_STR`, `DEFAULT_PWD` and
+  every console secret.
+- **Moving an existing box** is done by the scripts that own the keys
+  (`stack_env_adopt`, `library/common.sh`), not by a migration, so it also happens with
+  `MESH_AUTO_UPDATE=false`. The source file is first saved whole as
+  `.env.<YYYY-MM-DD>.old` (0600), then each key is copied, read back and deleted from
+  the `.env`. **Rolling back** to a tree that predates this re-mints the three secrets
+  (one round of re-logins); the old values are in that `.old` file.
+- Yundera's `library/mesh.sh` stopped seed-once-ing the three into the mesh `.env`, or
+  each night would put back what the mesh had just moved out.
+- Not covered: `install.ps1` writes `auth/.env` itself on Windows.
+
 ## Open follow-ups
+
+- **Delete the `.env.<date>.old` snapshots** left by the per-stack state move, once the
+  fleet has run on it without a rollback.
 
 - ~~`MESH_UPDATE_CHANNEL` is a branch name, not a URL.~~ **Done** — see below.
 - ~~`uninstall.sh` removes a stale container list.~~ **Done** with phases 1+2 — it now

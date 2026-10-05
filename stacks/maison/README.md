@@ -50,7 +50,7 @@ tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   stacks/maison/docker-compose.yml → maison/docker-compose.yml
   stacks/maison/icon.png           → maison/.icon.png
   stacks/maison/README.md          → maison/README.md
-  mesh .env (whole) + the two keys → maison/.env
+  mesh .env, filtered to the compose's keys, + the two keys → maison/.env
   pull → evict name squatters → up
 ```
 

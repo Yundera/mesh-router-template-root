@@ -48,11 +48,11 @@ Nothing in this folder is hand-written. Each self-check renders it in this order
 ensure-authelia.sh   secrets (generate-once)        → auth/authelia/secrets/, oidc/private.pem
                      auth/configuration.yml.tmpl    → auth/authelia/configuration.yml
                      owner seed / email refresh     → auth/authelia/users_database.yml
-                     AUTHELIA_DEX_SECRET            → mesh .env (plaintext) + secrets/dex-client-hash
+                     AUTHELIA_DEX_SECRET            → auth/.stack.env (plaintext) + secrets/dex-client-hash
                      "Local Account" connector      → auth/dex/connectors.d/authelia.yaml  (only once claimed)
                      restart authelia, wait until it serves
 
-ensure-dex.sh        DEX_SESSION_KEY (generate-once) → mesh .env
+ensure-dex.sh        DEX_SESSION_KEY (generate-once) → auth/.stack.env
                      scripts/self-check/dex.config.yaml.tmpl  ┐
                      + every auth/dex/connectors.d/*.yaml      ┘→ auth/dex/config.yaml
                      connector count                 → auth/dex/connector-count
@@ -61,11 +61,12 @@ ensure-dex.sh        DEX_SESSION_KEY (generate-once) → mesh .env
 
 ensure-stack-up.sh   mesh stack (Caddy, smtp, the `pcs` network)
 
-ensure-auth-stack.sh AUTH_CONSOLE_ASSERTION_SECRET   → mesh .env
+ensure-auth-stack.sh AUTH_CONSOLE_ASSERTION_SECRET   → auth/.stack.env
                      tools/deploy-stack.sh auth …:
                        stacks/auth/docker-compose.yml → auth/docker-compose.yml
                        stacks/auth/README.md          → auth/README.md
-                       mesh .env (whole)              → auth/.env
+                       mesh .env + auth/.stack.env,
+                       filtered to the compose's keys → auth/.env
                        pull → evict name squatters → pre-up.sh → up
                      (`--scale dex=0` when dex_wanted says no)
 ```

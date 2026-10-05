@@ -9,7 +9,8 @@
 # Responsibilities (all idempotent):
 #   - generate-once the session/storage/reset/oidc-hmac secrets + RSA JWKS key,
 #   - generate-once the Dex<->Authelia client secret (AUTHELIA_DEX_SECRET):
-#     plaintext into .env (Dex reads it to render its connector), pbkdf2 hash
+#     plaintext into the auth stack's .stack.env (the connector is rendered from
+#     it), pbkdf2 hash
 #     cached for Authelia's client config,
 #   - render configuration.yml every run (tracks DOMAIN),
 #   - seed the admin user in users_database.yml from DEFAULT_PWD, refreshing only
@@ -57,6 +58,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/library/authelia-ready.
 # pre-move path would seed a second, unclaimed user store. The migration normally
 # did this already; see adopt_auth_state for why it is repeated here.
 adopt_auth_state
+
+# AUTHELIA_DEX_SECRET is the auth stack's own state, in $AUTH_STACK_ENV: moved there
+# from the mesh .env on a box that predates it, before either path below reads it.
+stack_env_adopt "$ENV_FILE" "$AUTH_STACK_ENV" AUTHELIA_DEX_SECRET
 
 AUTH_ROOT="$AUTHELIA_HOME"
 SECRETS_DIR="$AUTH_ROOT/secrets"
@@ -186,7 +191,7 @@ write_local_account_connector() {
     # Empty is tolerated: the connector then renders with an empty secret and fails
     # its back-channel until Authelia has provisioned, rather than leaving the owner
     # with no button at all.
-    AUTHELIA_DEX_SECRET="$(get_env_value AUTHELIA_DEX_SECRET)"
+    AUTHELIA_DEX_SECRET="$(get_stack_env_value AUTHELIA_DEX_SECRET "$AUTH_STACK_ENV")"
     if [ -z "$AUTHELIA_DEX_SECRET" ]; then
         log_warn "AUTHELIA_DEX_SECRET not set yet; Local Account connector written without a secret until a full ensure-authelia.sh run mints it"
     fi
@@ -301,14 +306,14 @@ fi
 
 # --- Dex<->Authelia client secret -------------------------------------------
 # Generate-once. Dex (the client) needs the PLAINTEXT; Authelia (the provider)
-# stores only a pbkdf2 hash. The plaintext lives in .env so docker compose can
-# interpolate it and ensure-dex.sh — which runs right after — can render the
-# connector in the SAME cycle.
-AUTHELIA_DEX_SECRET="$(get_env_value AUTHELIA_DEX_SECRET)"
+# stores only a pbkdf2 hash. The plaintext lives in the auth stack's .stack.env so
+# write_local_account_connector (and ensure-dex.sh, which runs right after) can
+# render the connector in the SAME cycle. No compose file interpolates it.
+AUTHELIA_DEX_SECRET="$(get_stack_env_value AUTHELIA_DEX_SECRET "$AUTH_STACK_ENV")"
 SECRET_JUST_MINTED=0
 if [ -z "$AUTHELIA_DEX_SECRET" ]; then
     AUTHELIA_DEX_SECRET="$(openssl rand -hex 32)"
-    set_env_value AUTHELIA_DEX_SECRET "$AUTHELIA_DEX_SECRET"
+    stack_env_set AUTHELIA_DEX_SECRET "$AUTHELIA_DEX_SECRET" "$AUTH_STACK_ENV"
     rm -f "$DEX_HASH_FILE"   # force a fresh hash for the new secret
     SECRET_JUST_MINTED=1
     echo "Generated AUTHELIA_DEX_SECRET (Dex<->Authelia connector secret)"

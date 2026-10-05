@@ -44,7 +44,7 @@ ensure-terminal-stack.sh   (after ensure-auth-stack.sh)
     stacks/terminal/docker-compose.yml → terminal/docker-compose.yml
     stacks/terminal/icon.png           → terminal/.icon.png
     stacks/terminal/README.md          → terminal/README.md
-    mesh .env (whole) + those keys     → terminal/.env
+    mesh .env, filtered to the compose's keys, + those keys → terminal/.env
     pull → evict name squatters → up
 ```
 

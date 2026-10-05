@@ -8,8 +8,9 @@
 #   1b. copy stacks/<stack-name>/icon.<ext> -> <dest-dir>/.icon.<ext>, the file
 #      Maison renders the stack's tile from
 #   1c. copy stacks/<stack-name>/README.md -> <dest-dir>/README.md
-#   2. generate <dest-dir>/.env from the mesh .env, plus any extra KEY=value
-#      pairs given on the command line
+#   2. generate <dest-dir>/.env with the keys the stack's compose file interpolates,
+#      from the mesh .env and <dest-dir>/.stack.env (the stack's own state), plus
+#      any extra KEY=value pairs given on the command line
 #   3. docker compose pull, then up -d --remove-orphans (both with backoff).
 #      Between the two: evict containers squatting this stack's names, then run
 #      stacks/<stack-name>/pre-up.sh <dest-dir> <dest-compose> if the stack ships
@@ -26,9 +27,12 @@
 # repo refreshed on every sync. See the resolution note at SRC_COMPOSE below for
 # why own-tree-first matters when a migration invokes this.
 #
-# Copying the .env wholesale rather than cherry-picking keys means a variable
-# added to the mesh .env is automatically available to these stacks with no
-# change here.
+# The .env holds only what the stack's compose file interpolates
+# (emit_env_for_compose, library/common.sh). It used to be a wholesale copy of the
+# mesh .env, so every stack folder carried PROVIDER_STR, DEFAULT_PWD and every
+# console secret for a compose file that read a handful of keys. Deriving the list
+# from the compose file still means a variable added to the mesh .env reaches a
+# stack with no change here, as soon as that stack's compose references it.
 #
 # Retries mirror ensure-stack-{pulled,up}.sh: registry resets are common enough
 # that one transient failure must not fail the self-check.
@@ -122,9 +126,11 @@ chmod 600 "$TMP_ENV"
 {
     echo "# AUTO-GENERATED FILE - DO NOT EDIT"
     echo "# Written by scripts/tools/deploy-stack.sh for the '$STACK_NAME' stack."
-    echo "# Regenerated on every self-check; edit $ENV_FILE instead."
+    echo "# Regenerated on every self-check: the keys this stack's compose file"
+    echo "# interpolates, from $ENV_FILE (edit that one)"
+    echo "# and $DEST_DIR/.stack.env (this stack's own state)."
     echo ""
-    cat "$ENV_FILE"
+    emit_env_for_compose "$SRC_COMPOSE" "$DEST_DIR/.stack.env"
     if [ "$#" -gt 0 ]; then
         echo ""
         echo "# ============================================"
@@ -145,9 +151,9 @@ else
 fi
 
 # Unconditional, not inside the branch above: the file may already have the right
-# content but the wrong owner, from a template version that predates this. It
-# carries DEFAULT_PWD and PROVIDER_STR, so it stays 0600 — but owned by the
-# dashboard uid, which has to read it.
+# content but the wrong owner, from a template version that predates this. It can
+# carry a stack's secrets, so it stays 0600 — but owned by the dashboard uid,
+# which has to read it.
 chown "${PUID:-1000}:${PGID:-1000}" "$DEST_ENV" 2>/dev/null || true
 
 # --- 3. pull + up ----------------------------------------------------------

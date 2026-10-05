@@ -2,7 +2,8 @@
 # ensure-dex.sh - Provision the Dex OIDC broker (the PCS SSO identity provider).
 #
 # Responsibilities (all idempotent):
-#   - generate-once DEX_SESSION_KEY, the session-cookie encryption key,
+#   - generate-once DEX_SESSION_KEY, the session-cookie encryption key, into the
+#     auth stack's .stack.env,
 #   - render Dex config.yaml from the template every run (tracks DOMAIN changes),
 #   - append every connector drop-in in connectors.d/ — this script owns NO
 #     connector itself; each one is written by the script that owns its issuer
@@ -87,10 +88,14 @@ mkdir -p "$DEX_ROOT"
 # ROTATION invalidates every live Dex session — one round of re-logins across
 # every app on the box. Safe at any time. Nothing to back up: a lost key is
 # re-minted here.
-DEX_SESSION_KEY="$(get_env_value DEX_SESSION_KEY)"
+#
+# The auth stack's own state: kept in $AUTH_STACK_ENV, moved there from the mesh
+# .env on a box that predates it (stack_env_adopt, library/common.sh).
+stack_env_adopt "$ENV_FILE" "$AUTH_STACK_ENV" DEX_SESSION_KEY
+DEX_SESSION_KEY="$(get_stack_env_value DEX_SESSION_KEY "$AUTH_STACK_ENV")"
 if [ -z "$DEX_SESSION_KEY" ]; then
     DEX_SESSION_KEY="$(openssl rand -base64 24)"
-    set_env_value DEX_SESSION_KEY "$DEX_SESSION_KEY"
+    stack_env_set DEX_SESSION_KEY "$DEX_SESSION_KEY" "$AUTH_STACK_ENV"
     log_info "Generated DEX_SESSION_KEY (Dex session cookie encryption)"
 fi
 

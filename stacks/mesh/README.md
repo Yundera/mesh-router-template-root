@@ -178,7 +178,8 @@ docker volume mesh_smtp-data      mail delivery stats
 ```
 
 `.env` is the only state that matters. It holds `PROVIDER_STR`, `DEFAULT_PWD` (handed
-to every app, never rotate it) and the minted secrets. Hand-edits to the live
+to every app, never rotate it) and `MESH_CONSOLE_ASSERTION_SECRET`. The auth stack's
+secrets are in `/DATA/AppData/auth/.stack.env`. Hand-edits to the live
 `docker-compose.yml` or `Caddyfile` are lost on the next sync. Set
 `MESH_AUTO_UPDATE=false` to keep local changes.
 
@@ -188,7 +189,8 @@ to every app, never rotate it) and the minted secrets. Hand-edits to the live
   `ensure-stack-up.sh` and owned by no stack. Every stack (mesh, auth, maison, terminal)
   joins it, so `down` on one never deletes it under the others.
 - **Routing.** Caddy reaches every service by its `caddy_*` labels over `pcs`.
-- **The `.env`.** `deploy-stack.sh` generates each auxiliary stack's `.env` from this one.
+- **The `.env`.** `deploy-stack.sh` generates each auxiliary stack's `.env` from this one
+  and the stack's own `.stack.env`, keeping only the keys that stack's compose interpolates.
 - **The mesh CA** (`data/ca`) for Dex's on-box call to Authelia, and **`smtp`** for
   Authelia's reset mail.
 - **Order.** This stack comes up before auth, maison and terminal. Nothing uses
