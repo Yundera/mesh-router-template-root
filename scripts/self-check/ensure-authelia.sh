@@ -112,7 +112,7 @@ AUTHELIA_HASH_RESULT=""
 authelia_hash() {
     # usage: authelia_hash <argon2|pbkdf2> [extra args...]
     local algo="$1"; shift
-    local attempt=1 delay=2 out rc
+    local attempt=1 delay=2 out err errfile rc
 
     AUTHELIA_HASH_RESULT=""
     if ! command -v docker >/dev/null 2>&1; then
@@ -120,25 +120,34 @@ authelia_hash() {
         return 1
     fi
 
+    errfile="$(mktemp)"
     while [ "$attempt" -le "$HASH_MAX_ATTEMPTS" ]; do
-        # 2>&1 so a registry error is captured with the output instead of lost.
+        # The digest is parsed from stdout ONLY. When the image is not cached yet,
+        # `docker run` pulls it and prints its own "Digest: sha256:…" line on
+        # stderr; merged in, that line was taken as a second digest and the stored
+        # hash became two lines no secret could match. stderr is kept apart so a
+        # registry error is still reported instead of lost.
         if out="$(docker run --rm "$AUTHELIA_IMAGE" \
-                    authelia crypto hash generate "$algo" "$@" 2>&1)"; then
+                    authelia crypto hash generate "$algo" "$@" 2>"$errfile")"; then
             AUTHELIA_HASH_RESULT="$(printf '%s\n' "$out" | awk '/^Digest:/{print $2}')"
             if [ -n "$AUTHELIA_HASH_RESULT" ]; then
+                rm -f "$errfile"
                 return 0
             fi
             # Ran but produced no digest — an argument problem, not a transient
             # one. Retrying cannot help.
-            log_error "authelia crypto hash generate $algo produced no digest: $out"
+            log_error "authelia crypto hash generate $algo produced no digest: $out $(cat "$errfile")"
+            rm -f "$errfile"
             return 1
         fi
         rc=$?
-        log_warn "authelia hash attempt ${attempt}/${HASH_MAX_ATTEMPTS} failed (exit $rc): $out"
+        err="$(cat "$errfile")"
+        log_warn "authelia hash attempt ${attempt}/${HASH_MAX_ATTEMPTS} failed (exit $rc): $out $err"
         [ "$attempt" -lt "$HASH_MAX_ATTEMPTS" ] && sleep "$delay"
         delay=$((delay * 2))
         attempt=$((attempt + 1))
     done
+    rm -f "$errfile"
     return 1
 }
 
