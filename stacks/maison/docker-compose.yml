@@ -271,13 +271,24 @@ x-compose-app:
   title: Maison
   category: pcs
   developer: Yundera Team
-  # The dashboard is platform, not an app: this puts its tile in Maison's System
-  # grid and — the load-bearing half — makes Maison refuse to stop or uninstall
-  # it. It replaces the PROTECTED_APPS env removed above (Maison >= 1.1.5); on an
-  # older image the key is ignored and the stack is neither grouped nor
-  # protected, which is why the image pin above and this block move together.
-  # Restart is deliberately still offered.
+  # The dashboard is platform, not an app: `view: system` puts its tile in Maison's
+  # System grid, and on a current Maison that is ALL it does — a category, no
+  # behaviour. The guard is `lifecycle` below. Images before the lifecycle keys
+  # derive the same guard from `view: system` (>= 1.1.5; it replaced the
+  # PROTECTED_APPS env removed above), so keeping both covers either side of the
+  # pin, and the image pin above and this block still move together.
   view: system
+  # Stopping the dashboard from its own tile takes the UI down with the click that
+  # asked for it, and leaves nothing running to bring it back. Restart is still
+  # offered: the stack comes back on its own.
+  lifecycle:
+    stoppable: false
+    uninstallable: false
+  # This folder is Maison's own state directory, and it holds the local archive tree.
+  # The scheduler already leaves it out by path; `skip` closes the manual Backups-tab
+  # button too, which would otherwise stop the process taking the backup.
+  backup:
+    skip: true
   # THE URL MOVED. This pointed at Apps/CasaDash/icon.png until the AppStore repo
   # renamed that folder to Apps/CasaOS/; jsDelivr serves the branch tip, so the
   # old path 404s and this tile rendered iconless. Repointed to the live path.

@@ -184,8 +184,9 @@ networks:
   terminal-internal:
     driver: bridge
 
-# Tiles the stack in Maison's System grid: Maison refuses to stop or uninstall it and the
-# nightly backup skips it. `webui-host` must match caddy_0 above.
+# Tiles the stack in Maison's System grid (`view` is only the grid on a current Maison;
+# older images derive the lifecycle guard from it, so it stays). `lifecycle` is what
+# makes Maison refuse to stop or uninstall it. `webui-host` must match caddy_0 above.
 x-compose-app:
   schema_version: 2
   id: terminal
@@ -196,6 +197,9 @@ x-compose-app:
   webui-host: terminal-${APP_DOMAIN}
   webui-scheme: https
   webui-path: /
+  lifecycle:
+    stoppable: false
+    uninstallable: false
   # Nothing here is worth a snapshot (an SSH key the app regenerates), and backing an
   # app up stops it — `skip` also closes the manual Backups-tab path.
   backup:

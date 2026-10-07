@@ -435,10 +435,11 @@ networks:
     name: dex-internal
     internal: true
 
-# Tiles the stack in Maison's System grid: Maison refuses to stop or uninstall it
-# (every login on the box goes through it) and the nightly backup skips it. The
-# tile opens auth-console; webui-host is the only field Maison substitutes
-# ${DOMAIN} into, and it must match the gate's caddy_0.
+# Tiles the stack in Maison's System grid (`view` is only the grid on a current
+# Maison; older images derive the lifecycle guard from it, so it stays). Every login
+# on the box goes through this stack, so it declares itself neither stoppable nor
+# uninstallable, and opts out of backups. The tile opens auth-console; webui-host is
+# the only field Maison substitutes ${DOMAIN} into, and it must match the gate's caddy_0.
 x-compose-app:
   schema_version: 2
   id: auth
@@ -449,3 +450,10 @@ x-compose-app:
   webui-host: auth-console-${DOMAIN}
   webui-scheme: https
   webui-path: /
+  lifecycle:
+    stoppable: false
+    uninstallable: false
+  # A backup stops the app, and with it every login on the box. `skip` also closes
+  # the manual Backups-tab path.
+  backup:
+    skip: true

@@ -98,10 +98,11 @@ render_dex_and_verify() {
 # and silently never fires — the token is still issued, just stripped of every
 # claim, so login "works" and the visitor lands with no email and no admin role.
 # groups:["admins"] is load-bearing for AppShield's group gate.
-# x-compose-app view: system lists the stack in Maison's System grid as a
-# protected app (no stop, no uninstall) — stopping it would lock everyone out,
-# since it is the only connector. The folder has no leading dot so the tile
-# stays visible, greyed, even when the container is gone.
+# x-compose-app view: system lists the stack in Maison's System grid; `lifecycle`
+# makes Maison refuse to stop or uninstall it — stopping it would lock everyone
+# out, since it is the only connector (older Maison derived the same guard from
+# `view: system`). Nothing in it is worth a backup. The folder has no leading dot
+# so the tile stays visible, greyed, even when the container is gone.
 cat > "$AUTH_DIR/docker-compose.yml" <<COMPOSE
 name: demo-auth
 
@@ -165,6 +166,11 @@ x-compose-app:
   category: pcs
   developer: Yundera Team
   view: system
+  lifecycle:
+    stoppable: false
+    uninstallable: false
+  backup:
+    skip: true
 COMPOSE
 
 docker compose -f "$AUTH_DIR/docker-compose.yml" up -d

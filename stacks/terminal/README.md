@@ -82,8 +82,8 @@ and the box must run sshd.
 
 ## How it tiles itself
 
-`x-compose-app` puts the tile in Maison's System grid (`view: system`). Maison will not
-stop or uninstall it, and `backup.skip: true` keeps it out of the nightly backup and
+`x-compose-app` puts the tile in Maison's System grid (`view: system`). `lifecycle` makes
+Maison refuse to stop or uninstall it, and `backup.skip: true` keeps it out of the nightly backup and
 the Backups tab. The only state is a key the app regenerates, and backing an app up
 stops it. `webui-host: terminal-${APP_DOMAIN}` must match `caddy_0`.
 

@@ -296,13 +296,22 @@ x-compose-app:
   title: Mesh Router
   category: Utilities
   developer: Mesh Router NSL.sh
-  # The mesh stack is platform, not an app. Since the phase-3 move to
-  # ${DATA_ROOT}/AppData/mesh it is a MANAGED Maison tile (Maison's managed scan
-  # is stat(${DATA_ROOT}/AppData/<name>/docker-compose.yml)), so without this it
-  # is offered for stop/uninstall like any store app — which would take the whole
-  # platform down. Replaces the PROTECTED_APPS env that Maison dropped at 1.1.5;
-  # inert on older images. Restart stays available.
+  # The mesh stack is platform, not an app: `view: system` is its grid, nothing
+  # more on a current Maison. Images before the lifecycle keys derive the guard
+  # below from it (>= 1.1.5), which is why it stays.
   view: system
+  # Since the phase-3 move to ${DATA_ROOT}/AppData/mesh it is a MANAGED Maison tile
+  # (Maison's managed scan is stat(${DATA_ROOT}/AppData/<name>/docker-compose.yml)),
+  # so without this it is offered for stop/uninstall like any store app — which
+  # would take the whole platform down. Restart stays available.
+  lifecycle:
+    stoppable: false
+    uninstallable: false
+  # Not backed up: a backup stops the app, and stopping the gateway takes the box
+  # offline. What lives here (CA, certs, Caddy state) is re-provisioned by the
+  # template rather than restored. `skip` also closes the manual Backups-tab path.
+  backup:
+    skip: true
   icon: https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@main/icon.png
   webui-host: mesh-console-${DOMAIN}
   webui-scheme: https
