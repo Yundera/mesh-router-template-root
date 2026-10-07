@@ -64,6 +64,7 @@ ensure-stack-up.sh   mesh stack (Caddy, smtp, the `pcs` network)
 ensure-auth-stack.sh AUTH_CONSOLE_ASSERTION_SECRET   → auth/.stack.env
                      tools/deploy-stack.sh auth …:
                        stacks/auth/docker-compose.yml → auth/docker-compose.yml
+                       stacks/auth/icon.svg           → auth/.icon.svg
                        stacks/auth/README.md          → auth/README.md
                        mesh .env + auth/.stack.env,
                        filtered to the compose's keys → auth/.env
@@ -174,7 +175,7 @@ bundle instead of replacing it.
 
 ```
 ${DATA_ROOT}/AppData/auth/
-├── docker-compose.yml  .env  README.md   regenerated every self-check — don't edit
+├── docker-compose.yml  .env  .icon.svg  README.md   regenerated every self-check — don't edit
 ├── authelia/                         STATE — back it up
 │   ├── configuration.yml             rendered every run
 │   ├── users_database.yml            the accounts (Authelia owns it after the seed)

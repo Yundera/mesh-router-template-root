@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Auth stack tile icon: a shield with a keyhole — the box's sign-in and access
+     control (Authelia + Dex + auth-console). Without this file Maison rendered the tile
+     as the title's initial, an "A".
+
+     Deployed to ${DATA_ROOT}/AppData/auth/.icon.svg by tools/deploy-stack.sh, like the
+     maison and terminal icons. Plate: 720x720, white with an #e3edf5 hairline and
+     rx=160, the same plate as the other platform tiles, so the System grid reads as one
+     family. Drawn to stay legible at 64px, the size Maison renders in the grid. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 720">
+  <defs>
+    <linearGradient id="auth-shield" x1="0" y1="140" x2="0" y2="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4f8dff"/>
+      <stop offset="1" stop-color="#2459d8"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="712" height="712" rx="160" fill="#ffffff" stroke="#e3edf5" stroke-width="8"/>
+  <path fill="url(#auth-shield)" d="M360 132 L548 200 C552 202 555 206 555 210 L555 340 C555 466 476 552 366 596 C362 598 358 598 354 596 C244 552 165 466 165 340 L165 210 C165 206 168 202 172 200 Z"/>
+  <path fill="#ffffff" fill-opacity="0.16" d="M360 132 L548 200 C552 202 555 206 555 210 L555 340 C555 466 476 552 366 596 C362 598 360 598 360 598 Z"/>
+  <circle cx="360" cy="322" r="58" fill="#ffffff"/>
+  <path fill="#ffffff" d="M334 352 L386 352 L404 462 C405 468 401 472 395 472 L325 472 C319 472 315 468 316 462 Z"/>
+</svg>
