@@ -23,7 +23,12 @@
 # Takes the self-check lock and REFUSES while a self-check runs: one that has
 # already read .env would sync from the old source and record it as current.
 #
-# Exit: 0 saved, 2 bad arguments, 75 a self-check is running (try later).
+# REFUSES on a box whose updates are MANAGED (MESH_UPDATES_MANAGED_BY non-empty):
+# an operator pins UPDATE_URL and rewrites it on its own schedule, so a channel
+# picked here would only last until its next run.
+#
+# Exit: 0 saved, 2 bad arguments, 75 a self-check is running (try later),
+#       77 updates are managed by an operator.
 set -euo pipefail
 
 CHANNEL="${1:-}"
@@ -55,6 +60,11 @@ fi
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$SELF_DIR/library/common.sh"
+
+if [ -n "${MESH_UPDATES_MANAGED_BY:-}" ]; then
+    echo "Updates on this box are managed by ${MESH_UPDATES_MANAGED_BY}; the update channel cannot be changed here." >&2
+    exit 77
+fi
 
 case "$CHANNEL" in
     stable) URL="$(mesh_channel_url stable)" ;;

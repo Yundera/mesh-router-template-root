@@ -718,11 +718,15 @@ has the whole picture).
 - **A failed run fails the PCS create**, the check-only steps included (`ensure-root-domain`,
   `ensure-route-registered`). Keep them strict and keep their retry budget honest about a
   cold route registration.
-- **Mesh Console's update panel is neither hidden nor locked on a PCS.** `UPDATE_URL`,
-  `MESH_AUTO_UPDATE` and `SELF_CHECK_CRON` are set once at install and are this template's
-  own from then on.
-- **Each template updates itself from its own channel**, so `stable` here reaches PCS boxes
-  without a `template-root` release.
+- **Yundera drives this template's version on a PCS (changed 2026-10-07).** The earlier
+  rule — "each template updates itself from its own channel; the update panel is neither
+  hidden nor locked" — is reversed: a mesh release must not reach production PCS boxes
+  before Yundera promotes it. `template-root` pins a mesh commit and writes, on every run,
+  `UPDATE_URL=…/archive/<sha>.tar.gz`, `SELF_CHECK_CRON=disabled` and
+  `MESH_UPDATES_MANAGED_BY=Yundera`; its own nightly run then runs this template's
+  self-check, which syncs to the pin through the normal path (migrations, revision marker).
+  `MESH_AUTO_UPDATE` stays `true` — `false` would skip migrations. One cron per box.
+  The knob is generic: any operator-provisioned box can use it.
 - **`EMAIL`: `EMAIL_SYNC=false`.** On a PCS the orchestrator's value is authoritative, so the
   Yundera layer sets `EMAIL_SYNC=false` and upserts `EMAIL` itself; `ensure-email-synced.sh`
   then leaves the key alone. Generic: any operator-provisioned box wants the same knob.

@@ -457,6 +457,17 @@ redact_provider() {
 }
 
 if [[ -n "$ENV_SRC" && -z "$PROVIDER_ARG" && -z "$DOMAIN_ARG" ]]; then
+  # A box whose updates are managed by an operator (MESH_UPDATES_MANAGED_BY):
+  # the operator pins UPDATE_URL and moves it itself, so a manual update here would
+  # be undone at its next run — or, if it changed the source, fight it. The
+  # operator's own runs pass --provider/--domain and do not come through here.
+  _managed="$(env_get MESH_UPDATES_MANAGED_BY)"
+  if [[ -n "$_managed" ]]; then
+    echo "Updates on this box are managed by ${_managed}; nothing was changed." >&2
+    echo "To run its repairs now: sudo bash ${SCRIPTS_DIR}/self-check.sh" >&2
+    exit 1
+  fi
+  unset _managed
   _auto="$(env_get MESH_AUTO_UPDATE)"; [[ -n "$_auto" ]] || _auto="true"
   _email="$(env_get EMAIL)"
   _login="$(env_get LOCAL_ADMIN_USER)"

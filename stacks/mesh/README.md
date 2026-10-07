@@ -160,6 +160,9 @@ the app for host actions. The only host actions are the template's own
 - The channel picker calls `set-update-channel.sh <stable|dev|local|custom> [url]`: it
   writes `UPDATE_URL` / `MESH_AUTO_UPDATE` (`local` = downloads off) and exits `75` while a
   self-check runs. It never downloads; the next self-check syncs from the new source.
+- With `MESH_UPDATES_MANAGED_BY` set, the Update page is read-only ("managed by …"): the
+  picker is disabled, the script exits `77`, and the GitHub "latest" lookup is skipped (the
+  operator decides the version). "Update now" stays: it syncs to the pinned source and repairs.
 - The gate's OIDC back-channel stays on the box: the registrar hands it
   `internal_issuer_url: http://dex:5556`.
 
