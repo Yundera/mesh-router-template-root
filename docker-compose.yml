@@ -247,12 +247,12 @@ services:
       MESH_HOST_ROOT: "${DATA_ROOT:-/DATA}/AppData/mesh"
       # The compose projects the console lists as platform containers. `auth`
       # joined at the split — dex, authelia and auth-registrar used to be listed
-      # under `mesh` and would otherwise drop out of the Stack page. `terminal` is a
-      # platform stack too; `mesh-console` is not a project of its own any more.
+      # under `mesh` and would otherwise drop out of the Stack page. `mesh-console`
+      # is not a project of its own any more.
       #
       # PLATFORM_PROJECTS in the mesh .env replaces the list, for a deployment that
       # runs platform stacks of its own beside these.
-      PLATFORM_PROJECTS: "${PLATFORM_PROJECTS:-mesh,auth,maison,terminal}"
+      PLATFORM_PROJECTS: "${PLATFORM_PROJECTS:-mesh,auth,maison}"
     expose:
       - "8080"   # NEVER `ports:` — see the security note above
     networks:
@@ -269,7 +269,7 @@ services:
 networks:
   # EXTERNAL since the auth split: created by ensure_pcs_network
   # (scripts/library/common.sh) before any stack comes up, and owned by none of
-  # them. Every stack — this one, auth, maison, terminal — joins it the same way,
+  # them. Every stack — this one, auth, maison — joins it the same way,
   # so no stack has to come up first and `down` on this one no longer tries to
   # delete a network the others are attached to. On a box set up before the split
   # the network still carries this project's labels; an external user ignores

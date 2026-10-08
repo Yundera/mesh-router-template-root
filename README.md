@@ -29,7 +29,6 @@ stack's folder on the box, next to the running compose file.
 | `mesh` | mesh-router-tunnel, -agent, -caddy, smtp, mesh-console | `docker-compose.yml`, `Caddyfile` | `/DATA/AppData/mesh` — [README](stacks/mesh/README.md) |
 | `auth` | dex, authelia, auth-registrar, auth-console | `stacks/auth/` | `/DATA/AppData/auth` — [README](stacks/auth/README.md) |
 | `maison` | maison (gate), maison-app | `stacks/maison/` | `/DATA/AppData/maison` — [README](stacks/maison/README.md) |
-| `terminal` | terminal (gate), terminal-ttyd | `stacks/terminal/` | `/DATA/AppData/terminal` — [README](stacks/terminal/README.md) |
 
 Every stack joins the shared `pcs` bridge network as `external: true`. The self-check
 creates that network (`ensure_pcs_network` in `scripts/library/common.sh`) before the
@@ -248,7 +247,7 @@ knowing:
 ├── authelia/                     # users_database.yml, db.sqlite, configuration.yml, secrets/, oidc/
 ├── dex/                          # dex.db, config.yaml, connectors.d/, frontend/ (rendered login theme)
 └── auth-console/gate-data/       # the console gate's sessions
-/DATA/AppData/maison/, terminal/  # the other auxiliary stacks
+/DATA/AppData/maison/            # the other auxiliary stack
 ```
 
 ### What runs (in order, from `scripts/self-check/scripts-config.txt`)
@@ -309,7 +308,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `PUBLIC_IP_MODE` | `egress` | How `ensure-public-ip.sh` finds this box's address. `egress`: ask the outside world which address the box connects from — right behind NAT (a home server with forwarded ports). `interface`: take the globally-routable address on a local interface and nothing else — right for a cloud VM, where the egress address can be an upstream NAT gateway that is not this machine; an address the backend cannot ping is dropped, and IPv6 is used when the box has no public IPv4 of its own |
 | `BRAND_NAME` | _(unset)_ | Product name shown as the TOTP issuer and on the password-reset mail. Unset, the box names itself by its domain |
 | `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |
-| `PLATFORM_PROJECTS` | `mesh,auth,maison,terminal` | Compose projects that are the platform, not user apps: Mesh Console lists them as platform containers, and `tools/migrate.sh` neither stops nor starts them as apps |
+| `PLATFORM_PROJECTS` | `mesh,auth,maison` | Compose projects that are the platform, not user apps: Mesh Console lists them as platform containers, and `tools/migrate.sh` neither stops nor starts them as apps |
 | `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | _(unset)_ | For a box run by an operator: the control-plane URL the Access page reads the support SSH key from, and the key-comment host suffixes it marks as trusted. Inert when empty |
 | `SETUP_URL` | _(unset)_ | Where an owner finishes setting the box up. While no sign-in method exists yet (unclaimed, no drop-in connector) every app's sign-in page links there. Inert when empty |
 | `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Resident backup engine Maison execs into, for a deployment that ships one |

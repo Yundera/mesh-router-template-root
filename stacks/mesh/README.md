@@ -64,7 +64,7 @@ ensure-stack-up.sh       restore a missing Caddyfile from template/; move a lega
                          data/certs into data/ca; mint MESH_CONSOLE_ASSERTION_SECRET;
                          ensure_pcs_network; evict name squatters; up -d --remove-orphans;
                          wait for the stack to settle; wait for the agent to write the CA
-… auth, maison, terminal stacks …
+… auth, maison stacks …
 ensure-root-domain.sh    check only: https://${DOMAIN} answers
 ensure-route-registered.sh  check only: the backend has live routes for this user
 ```
@@ -193,14 +193,14 @@ secrets are in `/DATA/AppData/auth/.stack.env`. Hand-edits to the live
 ## What the other stacks need from it
 
 - **The `pcs` network.** External, created by `ensure_pcs_network` in
-  `ensure-stack-up.sh` and owned by no stack. Every stack (mesh, auth, maison, terminal)
-  joins it, so `down` on one never deletes it under the others.
+  `ensure-stack-up.sh` and owned by no stack. Every stack (mesh, auth, maison) joins
+  it, so `down` on one never deletes it under the others.
 - **Routing.** Caddy reaches every service by its `caddy_*` labels over `pcs`.
 - **The `.env`.** `deploy-stack.sh` generates each auxiliary stack's `.env` from this one
   and the stack's own `.stack.env`, keeping only the keys that stack's compose interpolates.
 - **The mesh CA** (`data/ca`) for Dex's on-box call to Authelia, and **`smtp`** for
   Authelia's reset mail.
-- **Order.** This stack comes up before auth, maison and terminal. Nothing uses
+- **Order.** This stack comes up before auth and maison. Nothing uses
   `depends_on` across projects.
 
 ## Day-to-day

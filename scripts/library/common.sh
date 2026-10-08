@@ -433,7 +433,7 @@ evict_name_squatters() {
 
 # Create the shared `pcs` network if it does not exist yet.
 #
-# Every stack joins `pcs` as `external: true` — mesh, auth, maison, terminal — so no
+# Every stack joins `pcs` as `external: true` — mesh, auth, maison — so no
 # project owns it. It used to belong to the mesh stack, which made the order stacks
 # came up in load-bearing (nothing else could start until mesh had created it) and
 # meant a `docker compose down` of mesh tried to delete a network every other stack

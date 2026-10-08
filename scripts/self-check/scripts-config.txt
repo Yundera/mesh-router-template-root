@@ -52,11 +52,9 @@ ensure-maison-stack.sh
 # (Maison's docs/app-env.md), so a second writer of that file would remove the keys
 # Maison computes. Whatever is left under /DATA/AppData/casaos/apps is dead data.
 
-# The web Terminal - the AppStore's Terminal app shipped as a system app
-# (stacks/terminal/). Same constraint as Maison above: its gate registers through
-# auth-registrar.
-# Opt out with TERMINAL_ENABLED=false in the mesh .env.
-ensure-terminal-stack.sh
+# Retired: ensure-terminal-stack.sh. The web Terminal is the AppStore's Terminal app
+# again, installed (or not) like any other app — a PCS preinstalls it. A box that ran
+# the old stack keeps it in ${DATA_ROOT}/AppData/terminal, no longer redeployed.
 
 # Verification (check-only, no repair)
 # ensure-root-domain.sh MUST stay after ensure-maison-stack.sh: the root domain's

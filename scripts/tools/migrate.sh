@@ -98,7 +98,7 @@ STATUS_FILE="$MIG_DIR/status.json"
 CANCEL_FILE="$MIG_DIR/cancel"
 KNOWN_HOSTS="$MIG_DIR/known_hosts"
 UNIT="mesh-migrate"
-PLATFORM="${PLATFORM_PROJECTS:-mesh,auth,maison,terminal}"
+PLATFORM="${PLATFORM_PROJECTS:-mesh,auth,maison}"
 # mesh-console reads this directory through its read-only /mesh mount: world-
 # readable, except the private key.
 mkdir -p "$MIG_DIR"

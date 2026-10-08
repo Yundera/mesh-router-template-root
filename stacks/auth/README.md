@@ -203,8 +203,8 @@ a reference by name or by path:
   reset mail. The mesh `.env` is the source of this stack's `.env`.
 - **`pcs` network** — external, created by `ensure_pcs_network` before any stack comes
   up. `dex-internal` belongs to this stack, and nothing outside it may join.
-- **Order** — runs after the mesh stack and before `maison` and `terminal`, because
-  their gates register here.
+- **Order** — runs after the mesh stack and before `maison`, because its gate
+  registers here.
 
 ## Day-to-day
 

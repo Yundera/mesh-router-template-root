@@ -2,8 +2,8 @@
 # Bring the auth stack up: dex, authelia, auth-registrar and auth-console
 # (stacks/auth/). Dex only when it has a connector to serve (dex_wanted).
 #
-# Deployed to ${DATA_ROOT}/AppData/auth through tools/deploy-stack.sh, like maison
-# and terminal. It renders nothing: ensure-authelia.sh and ensure-dex.sh have
+# Deployed to ${DATA_ROOT}/AppData/auth through tools/deploy-stack.sh, like maison.
+# It renders nothing: ensure-authelia.sh and ensure-dex.sh have
 # written every config these services read. The stack's state is in that same
 # folder — authelia/ and dex/ — moved there from the mesh root by adopt_auth_state
 # (library/common.sh) on a box that predates the move.
@@ -17,8 +17,8 @@
 #
 # ORDERING: after ensure-authelia.sh / ensure-dex.sh (their rendered files are
 # bind-mounted here) and after ensure-stack-up.sh (Caddy routes these hosts and
-# smtp relays Authelia's mail). Before maison and terminal: their gates register
-# through auth-registrar.
+# smtp relays Authelia's mail). Before maison: its gate registers through
+# auth-registrar.
 
 set -e
 
