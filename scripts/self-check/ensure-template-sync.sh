@@ -12,8 +12,9 @@
 #   2. Copy template/docker-compose.yml -> /DATA/AppData/mesh/
 #   3. Copy template/Caddyfile -> ${MESH_ROOT}/ (bind-mounted into
 #      mesh-router-caddy; see the in-place-copy note at the copy site).
-#   4. Copy template/scripts/ -> ${MESH_ROOT}/scripts/ (live scripts; updates
-#      take effect on the NEXT self-check run, one cycle of lag by design).
+#   4. Mirror template/scripts/ -> ${MESH_ROOT}/scripts/ (live scripts; updates
+#      take effect on the NEXT self-check run, one cycle of lag by design;
+#      scripts deleted upstream are removed).
 #
 # Runs before ensure-stack-up.sh in scripts-config.txt, which is load-bearing:
 # the compose file bind-mounts the Caddyfile, and Docker silently creates a
@@ -180,9 +181,9 @@ fi
 # unlinked, held open by the running interpreter, which reads it cleanly to the
 # end. Next run picks up the new content — the same one-cycle lag as before.
 #
-# Files deleted upstream are NOT removed here (there is no --delete), so a
-# retired script lingers until something prunes it. Harmless: scripts-config.txt
-# is the only thing that decides what runs.
+# scripts/ is an exact mirror of template/scripts/: files deleted upstream are
+# removed after the copy (see the prune below), as Yundera/template-root's
+# `rsync --delete` does for its own tree.
 mkdir -p "$SCRIPTS_DIR"
 # Clear temp files from a previous run that died between mktemp and mv.
 find "$SCRIPTS_DIR" -type f -name '.sync.*' -delete 2>/dev/null || true
@@ -198,5 +199,21 @@ while IFS= read -r -d '' src; do
     case "$src" in *.sh) chmod +x "$tmp" ;; esac
     mv -f "$tmp" "$dst"
 done < <(find "$TEMPLATE_DIR/scripts" -type f -print0)
+
+# Prune what upstream deleted, so a retired script does not linger on the box.
+# Unlinking is safe for the same reason the rename above is: a script that is
+# running right now keeps its open inode and reads it to the end. A script still
+# named in the list self-check.sh read at startup is skipped as "no longer on
+# disk" (run_scripts' tolerate_missing). Nothing but this sync writes here; a
+# hand-placed test script is removed too — test with a file:// UPDATE_URL instead.
+# rsync is not a dependency of this template, hence find.
+while IFS= read -r -d '' dst; do
+    rel="${dst#"$SCRIPTS_DIR/"}"
+    if [ ! -e "$TEMPLATE_DIR/scripts/$rel" ]; then
+        echo "Removing $rel (deleted upstream)"
+        rm -f "$dst"
+    fi
+done < <(find "$SCRIPTS_DIR" \( -type f -o -type l \) ! -name '.sync.*' -print0)
+find "$SCRIPTS_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 
 echo "Template synced (compose + Caddyfile + scripts updated; script changes apply next run)"

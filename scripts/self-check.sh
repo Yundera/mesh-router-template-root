@@ -94,9 +94,8 @@ idx=0
 #
 # `tolerate_missing=1` treats a script that is named in the list but absent on
 # disk as a skip rather than a failure: it was retired by a release whose
-# scripts-config.txt landed mid-run. (This repo's sync does not delete files, so
-# it only bites on a tree someone pruned by hand — but the two templates share
-# this runner's logic, and Yundera/template-root's sync does delete.) The
+# scripts-config.txt landed mid-run: ensure-template-sync.sh prunes scripts
+# deleted upstream, as Yundera/template-root's sync does. The
 # reconcile pass below passes 0 instead: it has just re-read the config from
 # disk, so a missing script there means the SHIPPED config names something that
 # does not exist, which is a real error.

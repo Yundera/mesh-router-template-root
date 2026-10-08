@@ -526,6 +526,20 @@ if [[ -z "$MESH_AUTO_UPDATE" ]]; then
   fi
 fi
 
+# mirror_scripts <src> <dst> - copy <src>/ over <dst>/, then remove from <dst> what
+# <src> does not have: scripts/ is an exact mirror of the template's, as
+# ensure-template-sync.sh keeps it every night. rsync is not a dependency, hence find.
+mirror_scripts() {
+  local src="$1" dst="$2" f rel
+  mkdir -p "$dst"
+  cp -a "$src/." "$dst/"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$dst/"}"
+    [[ -e "$src/$rel" ]] || rm -f "$f"
+  done < <(find "$dst" \( -type f -o -type l \) -print0)
+  find "$dst" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+}
+
 # Fetch the repo tarball and lay down template/, scripts/, and compose.
 download_template() {
   local tmp; tmp=$(mktemp -d)
@@ -540,7 +554,7 @@ download_template() {
   fi
   rm -rf "$TEMPLATE_DIR"
   cp -a "$src" "$TEMPLATE_DIR"
-  cp -a "$TEMPLATE_DIR/scripts/." "$SCRIPTS_DIR/"
+  mirror_scripts "$TEMPLATE_DIR/scripts" "$SCRIPTS_DIR"
   cp "$TEMPLATE_DIR/docker-compose.yml" "$APP_DIR/docker-compose.yml"
   rm -rf "$tmp"
 }
@@ -557,13 +571,13 @@ if [[ -n "$LOCAL_COMPOSE" ]]; then
   if [[ -d "$src_dir/scripts" ]]; then
     echo "[..] Copying template from $src_dir..."
     cp "$LOCAL_COMPOSE" "$APP_DIR/docker-compose.yml"
-    cp -a "$src_dir/scripts/." "$SCRIPTS_DIR/"
+    mirror_scripts "$src_dir/scripts" "$SCRIPTS_DIR"
     # Mirror compose + Caddyfile + scripts into template/ for layout consistency
     # (local mode has auto-update off, so template/ is reference-only and never
     # re-synced).
-    mkdir -p "$TEMPLATE_DIR/scripts"
+    mkdir -p "$TEMPLATE_DIR"
     cp "$LOCAL_COMPOSE" "$TEMPLATE_DIR/docker-compose.yml"
-    cp -a "$src_dir/scripts/." "$TEMPLATE_DIR/scripts/"
+    mirror_scripts "$src_dir/scripts" "$TEMPLATE_DIR/scripts"
     cp "$src_dir/Caddyfile" "$TEMPLATE_DIR/Caddyfile"
     # stacks/ and auth/ are read from template/ at runtime (deploy-stack.sh,
     # ensure-authelia.sh) rather than propagated to a live location, so a --local
