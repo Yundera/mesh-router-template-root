@@ -123,7 +123,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.45
+    image: ghcr.io/yundera/maison:1.1.47
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -222,8 +222,8 @@ services:
       # is nobody to send to and the menu entry does not exist. An operator layer
       # writes both keys into the mesh .env; deploy-stack.sh carries them here.
       #
-      # VERSION-COUPLED: needs a Maison image that reads FEEDBACK_* (the release
-      # after 1.1.46). An older image ignores them and shows no entry.
+      # VERSION-COUPLED: needs a Maison image that reads FEEDBACK_* (1.1.47+).
+      # An older image ignores them and shows no entry.
       FEEDBACK_URL: "${FEEDBACK_URL:-}"
       FEEDBACK_TOKEN: "${FEEDBACK_TOKEN:-}"
 
