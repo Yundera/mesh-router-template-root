@@ -61,6 +61,8 @@ tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   Because the whole mesh `.env` is copied in, setting `APPSTORE_URL` there overrides
   the default. That only applies on boot: once someone edits the source list in the
   dashboard, Maison stores that list, and it wins.
+  `FEEDBACK_URL` / `FEEDBACK_TOKEN` arrive the same way: an operator layer writes them
+  into the mesh `.env` and they turn on Maison's "Send feedback". Empty on a stock box.
 - **`.env.app`** is what every installed app *receives*: `APP_NET=pcs`,
   `APP_DATA_ROOT`, `APP_DOMAIN`/`domain`, the `APP_PUBLIC_IP*` keys, `APP_EMAIL`,
   `APP_DEFAULT_PASSWORD`/`DefaultPassword`. Maison forwards these into each app's own

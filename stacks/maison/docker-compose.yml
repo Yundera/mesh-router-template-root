@@ -213,6 +213,20 @@ services:
       # here; it exists for a deployment that ships an engine stack.
       BACKUP_ENGINE_CONTAINER: "${BACKUP_ENGINE_CONTAINER:-backup-engine}"
 
+      # --- Feedback --------------------------------------------------------
+      # Where the dashboard's "Send feedback" goes: an endpoint run by whoever
+      # operates the box, called from Maison's backend with the token as a
+      # bearer. See Maison's docs/feedback.md for the contract.
+      #
+      # INERT WHEN EMPTY, which is the stock box: there is no operator, so there
+      # is nobody to send to and the menu entry does not exist. An operator layer
+      # writes both keys into the mesh .env; deploy-stack.sh carries them here.
+      #
+      # VERSION-COUPLED: needs a Maison image that reads FEEDBACK_* (the release
+      # after 1.1.46). An older image ignores them and shows no entry.
+      FEEDBACK_URL: "${FEEDBACK_URL:-}"
+      FEEDBACK_TOKEN: "${FEEDBACK_TOKEN:-}"
+
       # Where the HOST's /proc is readable, for the Resources page.
       #
       # Most of /proc is NOT namespaced — /proc/stat, /proc/meminfo and
