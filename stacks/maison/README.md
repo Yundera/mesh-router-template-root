@@ -57,12 +57,23 @@ tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
 ```
 
 - **`.env`** is what the stack needs to run itself: `DOCKER_GID` (added through
-  `group_add` so Maison can use the socket), `TZ`, `APPSTORE_URL`, `SMTP_TO`, and so on.
-  Because the whole mesh `.env` is copied in, setting `APPSTORE_URL` there overrides
-  the default. That only applies on boot: once someone edits the source list in the
-  dashboard, Maison stores that list, and it wins.
-  `FEEDBACK_URL` / `FEEDBACK_TOKEN` arrive the same way: an operator layer writes them
-  into the mesh `.env` and they turn on Maison's "Send feedback". Empty on a stock box.
+  `group_add` so Maison can use the socket), `TZ`, and so on.
+- **Managed settings.** After the deploy, `ensure-maison-stack.sh` hands Maison the
+  settings this template owns, through the `maison` CLI inside the container
+  (`docker exec -i maison-app maison …`, Maison's `docs/config.md`), never by editing
+  Maison's files:
+  - `smtp`: this stack's relay (`smtp:587`, no TLS); `SMTP_TO` diverts the recipient.
+    Read-only in the dashboard, "Managed by `MAISON_SETTINGS_OWNER`".
+  - `feedback`: from `FEEDBACK_URL` / `FEEDBACK_TOKEN`, which an operator layer writes
+    into the mesh `.env`; the token goes to Maison's secret store. Released when they
+    are empty, which is a stock box.
+  - the store: `stores ensure $APPSTORE_URL` makes sure the deployment's store is on
+    the list. The list itself is the user's; removing the store lasts until the next
+    self-check.
+
+  A refusal fails the self-check with Maison's reason. An image older than the CLI is
+  detected and skipped: it still reads `SMTP_*`, `FEEDBACK_*` and `APPSTORE_URL` from
+  the compose environment, which keeps passing them for that reason.
 - **`.env.app`** is what every installed app *receives*: `APP_NET=pcs`,
   `APP_DOMAIN`/`domain`, the `APP_PUBLIC_IP*` keys, `APP_EMAIL`,
   `APP_DEFAULT_PASSWORD`/`DefaultPassword`. Maison forwards these into each app's own
@@ -70,9 +81,9 @@ tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   domain or IP changes. The file is written **before** the first deploy. Without it,
   Maison falls back to its standalone default (`APP_NET=mesh`, no domain), and every
   app would fail to start.
-- **`DATA_HOST_PATH` must equal `DATA_ROOT`.** Maison opens each app's
-  `com.docker.compose.project.working_dir` label, which is a host path, without
-  remapping it.
+- **`DATA_HOST_PATH` equals `DATA_ROOT` here**, because the data folder is mounted at
+  the same path. Maison 1.1.49+ maps host paths through `DATA_HOST_PATH`, so the two
+  may differ elsewhere; older images opened the `working_dir` label unmapped.
 
 ## How it tiles itself
 

@@ -202,6 +202,10 @@ services:
       #
       # VERSION-COUPLED: these keys exist from Maison 1.1.23. An older image
       # ignores them and sends nothing.
+      #
+      # FALLBACK ONLY on an image with the `maison` CLI: ensure-maison-stack.sh then
+      # sets the same relay as Maison's managed `smtp` setting, which ignores these.
+      # Kept for images older than the CLI, and for a rollback to one.
       SMTP_HOST: "smtp"
       SMTP_PORT: "587"
       SMTP_SECURITY: "none"
@@ -223,6 +227,8 @@ services:
       # writes both keys into the mesh .env; deploy-stack.sh carries them here.
       #
       # VERSION-COUPLED: needs a Maison image that reads FEEDBACK_* (1.1.47+).
+      # FALLBACK ONLY on an image with the `maison` CLI: ensure-maison-stack.sh then
+      # hands these to Maison as its managed `feedback` setting, which wins.
       # An older image ignores them and shows no entry.
       FEEDBACK_URL: "${FEEDBACK_URL:-}"
       FEEDBACK_TOKEN: "${FEEDBACK_TOKEN:-}"

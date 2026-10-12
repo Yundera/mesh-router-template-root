@@ -311,8 +311,9 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `PLATFORM_PROJECTS` | `mesh,auth,maison` | Compose projects that are the platform, not user apps: Mesh Console lists them as platform containers, and `tools/migrate.sh` neither stops nor starts them as apps |
 | `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | _(unset)_ | For a box run by an operator: the control-plane URL the Access page reads the support SSH key from, and the key-comment host suffixes it marks as trusted. Inert when empty |
 | `SETUP_URL` | _(unset)_ | Where an owner finishes setting the box up. While no sign-in method exists yet (unclaimed, no drop-in connector) every app's sign-in page links there. Inert when empty |
-| `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Resident backup engine Maison execs into, for a deployment that ships one |
-| `FEEDBACK_URL`, `FEEDBACK_TOKEN` | _(unset)_ | For a box run by an operator: the endpoint Maison's "Send feedback" posts to, and the bearer token it sends. Both or neither. Inert when empty — the menu entry does not exist. Contract: Maison's `docs/feedback.md` |
+| `BACKUP_ENGINE_CONTAINER` | `backup-engine` | Ignored since Maison 1.1.49: each backup engine names its resident container in its own descriptor. Still passed for older images |
+| `FEEDBACK_URL`, `FEEDBACK_TOKEN` | _(unset)_ | For a box run by an operator: the endpoint Maison's "Send feedback" posts to, and the bearer token it sends. Both or neither. Inert when empty — the menu entry does not exist. `ensure-maison-stack.sh` hands them to Maison as its managed `feedback` setting (token in Maison's secret store) and releases it when they are empty. Contract: Maison's `docs/feedback.md` |
+| `MAISON_SETTINGS_OWNER` | `mesh` | The name Maison shows on the settings this template manages for it ("Managed by …"): mail, feedback. An operator layer sets its own (template-root: `Yundera`) |
 
 **Not in the `.env`: a stack's own state.** A secret an ensure-script mints for one stack
 alone lives in that stack's folder, in `.stack.env` (0600, never regenerated). For the

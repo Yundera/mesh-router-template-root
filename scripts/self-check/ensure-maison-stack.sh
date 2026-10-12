@@ -89,6 +89,66 @@ chmod 600 "$APPENV_TMP"
 mv -f "$APPENV_TMP" "$MAISON_DIR/.env.app"
 echo "Wrote $MAISON_DIR/.env.app"
 
-exec "$SCRIPTS_DIR/tools/deploy-stack.sh" maison "$MAISON_DIR" \
+DEPLOY_RC=0
+"$SCRIPTS_DIR/tools/deploy-stack.sh" maison "$MAISON_DIR" \
     "DOCKER_GID=$DOCKER_GID" \
-    "TZ=$TZ"
+    "TZ=$TZ" || DEPLOY_RC=$?
+
+# --- settings Maison holds on the deployment's behalf ------------------------
+# Through the `maison` CLI inside the container, never by editing Maison's state
+# files: Maison holds them in memory and is their only writer (Maison's
+# docs/config.md). A managed setting is read-only in the dashboard and shows its
+# owner; this block re-asserts it on every self-check, and releases it when the
+# feature is off here, which hands it back to the user.
+#
+# An image older than the CLI cannot take any of this. It still reads SMTP_*,
+# FEEDBACK_* and APPSTORE_URL from the compose environment, which is why the
+# compose keeps passing them: skip, and let that path carry the box.
+if ! docker exec maison-app maison help >/dev/null 2>&1; then
+    log_warn "maison-app predates the maison CLI; mail, feedback and the store stay on the env path"
+    exit "$DEPLOY_RC"
+fi
+
+# Shown to the user as "Managed by <owner>". A deployment layered on this template
+# names itself here (template-root sets Yundera).
+OWNER="$(env_get MAISON_SETTINGS_OWNER)"
+OWNER="${OWNER:-mesh}"
+maison_cli() { docker exec -i maison-app maison "$@" >/dev/null; }
+CLI_FAILED=0
+# JSON is built by hand (no jq on the host); refuse a value that would break it.
+json_safe() { case "$1" in *'"'* | *'\'*) return 1 ;; esac; }
+
+# Mail: this stack's own relay, the `smtp` service. SMTP_TO only diverts the
+# recipient; empty means Maison mails the box's owner (APP_EMAIL).
+SMTP_TO_VAL="$(env_get SMTP_TO)"
+if json_safe "$SMTP_TO_VAL"; then
+    printf '{"host":"smtp","port":587,"security":"none","from":"","to":"%s"}' "$SMTP_TO_VAL" \
+        | maison_cli settings set smtp --owner "$OWNER" || CLI_FAILED=1
+else
+    log_error "SMTP_TO contains a quote or backslash; mail setting not updated"
+    CLI_FAILED=1
+fi
+
+# The store: the user's list, but the deployment's own store is always on it.
+STORE_URL="$(env_get APPSTORE_URL)"
+maison_cli stores ensure "${STORE_URL:-https://github.com/Yundera/AppStore/archive/refs/heads/main.zip}" \
+    || CLI_FAILED=1
+
+# Feedback: on while an operator layer has written both FEEDBACK_* keys into the
+# mesh .env, released otherwise. The token goes to Maison's secret store; the
+# setting only references it.
+FEEDBACK_URL_VAL="$(env_get FEEDBACK_URL)"
+FEEDBACK_TOKEN_VAL="$(env_get FEEDBACK_TOKEN)"
+if [ -n "$FEEDBACK_URL_VAL" ] && [ -n "$FEEDBACK_TOKEN_VAL" ] && json_safe "$FEEDBACK_URL_VAL"; then
+    { printf '%s' "$FEEDBACK_TOKEN_VAL" | maison_cli secret set feedback_token \
+        && printf '{"url":"%s","token":"${secret:feedback_token}"}' "$FEEDBACK_URL_VAL" \
+            | maison_cli settings set feedback --owner "$OWNER"; } || CLI_FAILED=1
+else
+    maison_cli settings release feedback || CLI_FAILED=1
+fi
+
+if [ "$CLI_FAILED" -ne 0 ]; then
+    log_error "Maison refused one or more managed settings (see above)"
+    exit 1
+fi
+exit "$DEPLOY_RC"
