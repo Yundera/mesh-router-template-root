@@ -132,11 +132,11 @@ services:
     environment:
       HTTP_ADDR: ":8080"
 
-      # DATA_HOST_PATH MUST equal DATA_ROOT. Maison reads the raw
-      # `com.docker.compose.project.working_dir` label — a HOST path — and opens it
-      # directly, with no container-path remapping. If the two differ, every app's
-      # compose lookup opens a path that does not exist inside this container and NO
-      # app gets a tile.
+      # DATA_ROOT is mounted at the same path inside the container as on the host,
+      # so the two are equal here. They may differ elsewhere (a dev box, Docker
+      # Desktop): Maison maps host paths through DATA_HOST_PATH. Before the Maison
+      # release after 1.1.47 one lookup skipped that mapping, and an unmanaged
+      # stack's metadata (its lifecycle guard) went missing when they differed.
       DATA_ROOT: "${DATA_ROOT:-/DATA}"
       DATA_HOST_PATH: "${DATA_ROOT:-/DATA}"
 

@@ -69,7 +69,6 @@ cat > "$APPENV_TMP" <<EOF
 #
 # The variables Maison forwards into every app it manages; see Maison's docs/app-env.md.
 APP_NET=pcs
-APP_DATA_ROOT=${DATA_ROOT:-/DATA}
 APP_DOMAIN=$(env_get DOMAIN)
 domain=$(env_get DOMAIN)
 APP_PUBLIC_IP=$(env_get PUBLIC_IP)
