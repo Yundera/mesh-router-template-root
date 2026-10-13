@@ -654,7 +654,6 @@ product's values without a fork:
 | `DEX_THEME_SRC` | the shipped `dex-theme/` | its own `dex-theme/themes/yundera` |
 | `PLATFORM_PROJECTS` | `mesh,auth,maison,mesh-console` | `mesh,auth,yundera,maison,kopia,terminal` |
 | `OPERATOR_API`, `TRUSTED_PUBKEY_HOST_SUFFIXES` | empty (feature off) | the operator URL and `yundera.com` on auth-console |
-| `BACKUP_ENGINE_CONTAINER` | `backup-engine` (Maison's own default) | `kopia-engine` |
 | `PUBLIC_IP_MODE` | `egress` | `interface`, above |
 | `TERMINAL_USER` | `root` | `admin` (already a key) |
 

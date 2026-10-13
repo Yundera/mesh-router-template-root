@@ -123,7 +123,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.55
+    image: ghcr.io/yundera/maison:1.1.57
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -210,12 +210,6 @@ services:
       SMTP_PORT: "587"
       SMTP_SECURITY: "none"
       SMTP_TO: "${SMTP_TO:-}"
-
-      # The resident backup engine container Maison `docker exec`s into, when a
-      # deployment runs one. The default is Maison's own, and with no such
-      # container Maison starts a one-shot engine per command — so this is inert
-      # here; it exists for a deployment that ships an engine stack.
-      BACKUP_ENGINE_CONTAINER: "${BACKUP_ENGINE_CONTAINER:-backup-engine}"
 
       # --- Feedback --------------------------------------------------------
       # Where the dashboard's "Send feedback" goes: an endpoint run by whoever
