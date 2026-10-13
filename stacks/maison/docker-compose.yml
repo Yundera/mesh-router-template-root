@@ -309,10 +309,8 @@ x-compose-app:
   # button too, which would otherwise stop the process taking the backup.
   backup:
     skip: true
-  # THE URL MOVED. This pointed at Apps/CasaDash/icon.png until the AppStore repo
-  # renamed that folder to Apps/CasaOS/; jsDelivr serves the branch tip, so the
-  # old path 404s and this tile rendered iconless. Repointed to the live path.
-  icon: https://cdn.jsdelivr.net/gh/Yundera/AppStore@main/Apps/CasaOS/icon.png
+  # No `icon:`: the tile is drawn from `.icon.png`, which deploy-stack.sh copies in
+  # from stacks/maison/icon.png. The old store URL fallback showed the CasaOS mark.
   webui-host: maison-${DOMAIN}
   webui-scheme: https
   webui-path: /

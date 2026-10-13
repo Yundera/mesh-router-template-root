@@ -103,8 +103,8 @@ field in preference to `x-casaos`:
 - `webui-host: maison-${DOMAIN}` is the **only** field Maison substitutes `${DOMAIN}`
   into. Maison parses compose with a plain YAML unmarshal and never interpolates
   anything else. It points at the gate and must match `caddy_0`.
-- The tile image comes from `.icon.png`, which deploy-stack.sh copies in. The `icon:`
-  URL is only a fallback.
+- The tile image comes from `.icon.png`, which deploy-stack.sh copies in. There is no
+  `icon:` URL fallback.
 
 ## How a login works
 
