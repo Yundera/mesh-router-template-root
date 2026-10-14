@@ -453,6 +453,8 @@ x-compose-app:
   lifecycle:
     stoppable: false
     uninstallable: false
+    # Updated by the template that deploys it, not from a store: no row on Maison's Updates page.
+    updatable: false
   # A backup stops the app, and with it every login on the box. `skip` also closes
   # the manual Backups-tab path.
   backup:

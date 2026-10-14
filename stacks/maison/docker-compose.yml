@@ -123,7 +123,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.58
+    image: ghcr.io/yundera/maison:1.1.59
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -298,6 +298,8 @@ x-compose-app:
   lifecycle:
     stoppable: false
     uninstallable: false
+    # Updated by the template that deploys it, not from a store: no row on Maison's Updates page.
+    updatable: false
   # This folder is Maison's own state directory, and it holds the local archive tree.
   # The scheduler already leaves it out by path; `skip` closes the manual Backups-tab
   # button too, which would otherwise stop the process taking the backup.

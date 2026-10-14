@@ -307,6 +307,8 @@ x-compose-app:
   lifecycle:
     stoppable: false
     uninstallable: false
+    # Updated by the template that deploys it, not from a store: no row on Maison's Updates page.
+    updatable: false
   # Not backed up: a backup stops the app, and stopping the gateway takes the box
   # offline. What lives here (CA, certs, Caddy state) is re-provisioned by the
   # template rather than restored. `skip` also closes the manual Backups-tab path.
