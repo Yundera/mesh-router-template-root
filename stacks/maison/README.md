@@ -35,7 +35,7 @@ Pin rules, explained in full in `docker-compose.yml`:
 - **The image pin and the stop/uninstall guard move together.** A current Maison
   reads it from `x-compose-app.lifecycle`; images from 1.1.5 up to that change derive
   it from `view: system` instead, and before 1.1.5 there is no guard at all. The
-  block declares both so it holds on either side of the pin.
+  block now says `view: service`, so it relies on the pin being past that change.
 - The `SMTP_*` keys need Maison 1.1.23 or later, and `.env.app` needs an image that
   reads it. An older image expects `REF_NET` and attaches apps to no network.
 
@@ -94,15 +94,17 @@ That is deliberate: the stack is not hidden.
 The trailing `x-compose-app` block is the tile's metadata, and Maison reads it field by
 field in preference to `x-casaos`:
 
-- `view: system` puts the tile in the System grid. That is all it does on a current
+- `view: service` puts the tile in the Services grid. That is all it does on a current
   Maison.
 - `lifecycle: {stoppable: false, uninstallable: false}` makes Maison **refuse to stop or
   uninstall** it. Restart is still offered.
 - `backup.skip: true`: this folder is Maison's own state and holds the archive tree, and
   backing an app up stops it.
-- `webui-host: maison-${DOMAIN}` is the **only** field Maison substitutes `${DOMAIN}`
-  into. Maison parses compose with a plain YAML unmarshal and never interpolates
-  anything else. It points at the gate and must match `caddy_0`.
+- There is **no `webui-host`**: the tile is the dashboard you are already on, so a
+  link would only reopen the same page. Clicking it opens its settings instead.
+- `tips` keeps the address, `https://maison-${DOMAIN}/`, for completeness. Tips are
+  rendered against the stack's `.env`, which carries `DOMAIN`. It points at the gate
+  and must match `caddy_0`.
 - The tile image comes from `.icon.png`, which deploy-stack.sh copies in. There is no
   `icon:` URL fallback.
 
@@ -167,7 +169,7 @@ docker logs maison-app    # dashboard, store fetches, app operations
 | Store grid iconless | Maison image older than the store's compose-relative assets |
 | Apps start on no network / wrong domain | `.env.app` missing or stale. Re-run `ensure-maison-stack.sh` |
 | Everyone logged out after a recreate | `gate-data` missing or not writable by the gate |
-| Tile links to a literal `https://maison-${DOMAIN}/` | `${DOMAIN}` used in a metadata field other than `webui-host` |
+| Tips show a literal `https://maison-${DOMAIN}/` | `DOMAIN` missing from the stack's `.env` |
 
 **Never add `ports:`** to either service. Maison with the Docker socket and no
 authentication amounts to root on the host.

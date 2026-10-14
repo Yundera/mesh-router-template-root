@@ -176,8 +176,8 @@ services:
       APPSTORE_URL: "${APPSTORE_URL:-https://github.com/Yundera/AppStore/archive/refs/heads/main.zip}"
 
       # NO PROTECTED_APPS. It was removed from Maison at 1.1.5: an app is now
-      # protected because its own compose says so, via `x-compose-app.view:
-      # system` (this file's block at the bottom, and the mesh stack's). See the
+      # protected because its own compose says so, via `x-compose-app.lifecycle`
+      # (this file's block at the bottom, and the other platform stacks'). See the
       # note there for what that withholds.
 
       # --- Outbound mail --------------------------------------------------
@@ -273,25 +273,21 @@ networks:
     external: true
 
 # The dashboard tiles itself. Maison reads this in preference to x-casaos, field by
-# field. `webui-host` is the ONLY metadata field it substitutes ${DOMAIN} into —
-# Maison parses compose with a plain yaml.Unmarshal and never interpolates, so a
-# templated host anywhere else would link to the literal `https://maison-${DOMAIN}/`.
-#
-# It points at the GATE (`maison-${DOMAIN}`), not the dashboard container — that is
-# the only authenticated way in, and it must match the caddy_0 label above.
+# field. It declares NO `webui-host`: the tile is the dashboard you are already
+# looking at, so a link to it only reopens the same page. Clicking the tile opens its
+# settings instead, and the address is kept in `tips` below for completeness.
 x-compose-app:
   schema_version: 2
   id: maison
   title: Maison
   category: pcs
   developer: Yundera Team
-  # The dashboard is platform, not an app: `view: system` puts its tile in Maison's
-  # System grid, and on a current Maison that is ALL it does — a category, no
-  # behaviour. The guard is `lifecycle` below. Images before the lifecycle keys
-  # derive the same guard from `view: system` (>= 1.1.5; it replaced the
-  # PROTECTED_APPS env removed above), so keeping both covers either side of the
-  # pin, and the image pin above and this block still move together.
-  view: system
+  # The dashboard is platform, not an app, and has no link of its own (see above):
+  # `view: service` puts its tile in Maison's Services grid. That is a category only,
+  # no behaviour — the guard is `lifecycle` below. Images before the lifecycle keys
+  # derived the guard from `view: system` instead; the image pin above is well past
+  # them, so the two move together and must not be rolled back apart.
+  view: service
   # Stopping the dashboard from its own tile takes the UI down with the click that
   # asked for it, and leaves nothing running to bring it back. Restart is still
   # offered: the stack comes back on its own.
@@ -307,6 +303,10 @@ x-compose-app:
     skip: true
   # No `icon:`: the tile is drawn from `.icon.png`, which deploy-stack.sh copies in
   # from stacks/maison/icon.png. The old store URL fallback showed the CasaOS mark.
-  webui-host: maison-${DOMAIN}
-  webui-scheme: https
-  webui-path: /
+
+  # Rendered against this stack's .env, where deploy-stack.sh writes DOMAIN. The
+  # address is the GATE (`maison-${DOMAIN}`), the only authenticated way in — it must
+  # match the caddy_0 label above.
+  tips: |
+    Maison is the dashboard you are using now. It is also reachable at
+    [https://maison-${DOMAIN}/](https://maison-${DOMAIN}/).
