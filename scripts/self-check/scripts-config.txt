@@ -8,6 +8,9 @@ ensure-logrotate.sh
 
 # Prerequisites
 ensure-docker-installed.sh
+# Host kernel parameters persisted in /etc/sysctl.d (ip_nonlocal_bind: an app port
+# published on a VPN address must survive a boot where the VPN comes up last).
+ensure-host-sysctl.sh
 # yq, for tools/authelia-user-manager.sh. Non-fatal if it cannot be installed —
 # nothing in the boot path needs it (ensure-authelia.sh's claimed-ness probe fails
 # open without it); only the interactive user-management verbs do.
