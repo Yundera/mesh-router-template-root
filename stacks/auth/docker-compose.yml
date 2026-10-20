@@ -40,6 +40,16 @@
 # =============================================================================
 name: auth
 
+# BOUNDED CONTAINER LOGS. Docker's default json-file driver never rotates, and
+# no daemon.json is assumed on the host: mesh-router-caddy alone reached 2.3 GB
+# in twelve days on a test box. 3 x 10 MB per container; a change here recreates
+# the containers on the next `up`.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   dex:
     # PINNED BY DIGEST TO A `master` BUILD, DELIBERATELY — not a release tag.
@@ -65,6 +75,7 @@ services:
     hostname: dex
     cpu_shares: 80
     restart: unless-stopped
+    logging: *logging
     command: ["dex", "serve", "/data/config.yaml"]
     environment:
       # Gates the whole `sessions:` block in dex.config.yaml.tmpl. Dex REFUSES TO
@@ -185,6 +196,7 @@ services:
     hostname: authelia
     cpu_shares: 80
     restart: unless-stopped
+    logging: *logging
     environment:
       AUTHELIA_SESSION_SECRET_FILE: /config/secrets/session
       AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /config/secrets/storage
@@ -234,6 +246,7 @@ services:
     hostname: auth-registrar
     cpu_shares: 40
     restart: unless-stopped
+    logging: *logging
     environment:
       ISSUER_URL: https://auth-${DOMAIN}
       # The same issuer as reached from inside the box: Dex's own listener on
@@ -322,6 +335,7 @@ services:
     container_name: auth-console
     hostname: auth-console
     restart: unless-stopped
+    logging: *logging
     # Unprivileged: the gate needs nothing but its own /data. ensure-auth-stack.sh
     # creates gate-data and gives it to this uid before the stack comes up — left
     # to Docker the directory would be root-owned, and a non-root gate then fails
@@ -379,6 +393,7 @@ services:
     container_name: auth-console-app
     hostname: auth-console-app
     restart: unless-stopped
+    logging: *logging
     # Root: it reads the mesh .env (mode 600) and talks to the Docker socket,
     # which already makes it root-equivalent on the host.
     user: "0:0"

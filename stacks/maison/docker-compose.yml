@@ -26,6 +26,16 @@
 # =============================================================================
 name: maison
 
+# BOUNDED CONTAINER LOGS. Docker's default json-file driver never rotates, and
+# no daemon.json is assumed on the host: mesh-router-caddy alone reached 2.3 GB
+# in twelve days on a test box. 3 x 10 MB per container; a change here recreates
+# the containers on the next `up`.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # ===========================================================================
   # APPSHIELD GATE — the only public entrypoint to Maison.
@@ -53,6 +63,7 @@ services:
     container_name: maison
     hostname: maison
     restart: unless-stopped
+    logging: *logging
     user: "0:0"
     cpu_shares: 40
     mem_limit: 128m
@@ -127,6 +138,7 @@ services:
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
+    logging: *logging
     cpu_shares: 90
     mem_limit: 512m
     environment:
