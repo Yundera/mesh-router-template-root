@@ -458,7 +458,8 @@ networks:
 x-compose-app:
   schema_version: 2
   id: auth
-  title: Auth
+  title:
+    en_us: Auth
   category: pcs
   developer: Yundera Team
   view: system

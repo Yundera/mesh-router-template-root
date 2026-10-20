@@ -309,7 +309,8 @@ volumes:
 x-compose-app:
   schema_version: 2
   id: mesh
-  title: Mesh Router
+  title:
+    en_us: Mesh Router
   category: Utilities
   developer: Mesh Router NSL.sh
   # The mesh stack is platform, not an app: `view: system` is its grid, nothing

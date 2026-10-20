@@ -134,7 +134,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.71
+    image: ghcr.io/yundera/maison:1.1.74
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -313,7 +313,8 @@ networks:
 x-compose-app:
   schema_version: 2
   id: maison
-  title: Maison
+  title:
+    en_us: Maison
   category: pcs
   developer: Yundera Team
   # The dashboard is platform, not an app: `view: system` puts its tile in Maison's
@@ -344,6 +345,7 @@ x-compose-app:
   # Rendered against this stack's .env, where deploy-stack.sh writes DOMAIN. The
   # address is the GATE (`maison-${DOMAIN}`), the only authenticated way in — it must
   # match the caddy_0 label above.
-  tips: |
-    Maison is the dashboard you are using now. It is also reachable at
-    [https://maison-${DOMAIN}/](https://maison-${DOMAIN}/).
+  tips:
+    en_us: |
+      Maison is the dashboard you are using now. It is also reachable at
+      [https://maison-${DOMAIN}/](https://maison-${DOMAIN}/).
