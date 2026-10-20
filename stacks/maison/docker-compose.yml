@@ -282,12 +282,15 @@ x-compose-app:
   title: Maison
   category: pcs
   developer: Yundera Team
-  # The dashboard is platform, not an app, and has no link of its own (see above):
-  # `view: service` puts its tile in Maison's Services grid. That is a category only,
-  # no behaviour — the guard is `lifecycle` below. Images before the lifecycle keys
-  # derived the guard from `view: system` instead; the image pin above is well past
-  # them, so the two move together and must not be rolled back apart.
-  view: service
+  # The dashboard is platform, not an app: `view: system` puts its tile in Maison's
+  # System grid beside the mesh and auth stacks. It has no link of its own (see
+  # above), so it is still a service in all but grid — a click opens its settings.
+  # That is a category only, no behaviour — the guard is `lifecycle` below.
+  #
+  # VERSION-COUPLED: a system tile with no URL opens its settings only from the
+  # Maison release after 1.1.69. An older image greys the tile out as "No reachable
+  # web address" (it is still listed, just not clickable).
+  view: system
   # Stopping the dashboard from its own tile takes the UI down with the click that
   # asked for it, and leaves nothing running to bring it back. Restart is still
   # offered: the stack comes back on its own.

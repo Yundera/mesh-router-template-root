@@ -35,7 +35,9 @@ Pin rules, explained in full in `docker-compose.yml`:
 - **The image pin and the stop/uninstall guard move together.** A current Maison
   reads it from `x-compose-app.lifecycle`; images from 1.1.5 up to that change derive
   it from `view: system` instead, and before 1.1.5 there is no guard at all. The
-  block now says `view: service`, so it relies on the pin being past that change.
+  block declares `lifecycle`, so it relies on the pin being past that change.
+- **`view: system` with no `webui-host` needs a Maison after 1.1.69.** Older images
+  grey a URL-less system tile out instead of opening its settings.
 - The `SMTP_*` keys need Maison 1.1.23 or later, and `.env.app` needs an image that
   reads it. An older image expects `REF_NET` and attaches apps to no network.
 
@@ -94,8 +96,8 @@ That is deliberate: the stack is not hidden.
 The trailing `x-compose-app` block is the tile's metadata, and Maison reads it field by
 field in preference to `x-casaos`:
 
-- `view: service` puts the tile in the Services grid. That is all it does on a current
-  Maison.
+- `view: system` puts the tile in the System grid, beside the mesh and auth stacks.
+  That is all it does on a current Maison.
 - `lifecycle: {stoppable: false, uninstallable: false}` makes Maison **refuse to stop or
   uninstall** it. Restart is still offered.
 - `backup.skip: true`: this folder is Maison's own state and holds the archive tree, and
