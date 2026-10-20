@@ -134,7 +134,7 @@ services:
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
   maison-app:
-    image: ghcr.io/yundera/maison:1.1.69
+    image: ghcr.io/yundera/maison:1.1.70
     container_name: maison-app
     hostname: maison-app
     restart: unless-stopped
@@ -253,6 +253,22 @@ services:
       # Maison feature-detects this: without the mount the Resources page hides the
       # network and process tables and says why.
       HOST_PROC: "/host/proc"
+
+      # Where the HOST's cgroup v2 tree is readable, for per-app usage: the
+      # history graphs on an app's Stats tab, and the live per-app figures. Maison
+      # reads each container's cpu.stat / memory.* / io.stat straight from here
+      # instead of asking Docker for stats (about a second per container), which
+      # is what makes recording it with nobody watching affordable. See Maison's
+      # docs/resources.md, "App history".
+      #
+      # OPTIONAL. Set CGROUP_ROOT to an empty value in the mesh .env to switch it
+      # off: Maison then records app folder sizes only and the live views fall
+      # back to Docker stats. It also feature-detects — a path that is not a
+      # cgroup v2 tree reads as off.
+      #
+      # VERSION-COUPLED: needs a Maison image that reads CGROUP_ROOT (1.1.70+).
+      # An older image ignores it, and the read-only mount below is inert.
+      CGROUP_ROOT: "${CGROUP_ROOT-/host/sys/fs/cgroup}"
     # Docker socket group — resolved from the host by ensure-maison-stack.sh.
     group_add:
       - "${DOCKER_GID}"
@@ -275,6 +291,12 @@ services:
       - type: bind
         source: /proc
         target: /host/proc
+        read_only: true
+      # Read-only, and paired with CGROUP_ROOT above: resource counters of every
+      # cgroup on the host. Not a new capability either — see the note above.
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /host/sys/fs/cgroup
         read_only: true
 
 networks:
