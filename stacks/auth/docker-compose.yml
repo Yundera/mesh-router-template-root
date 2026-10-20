@@ -52,25 +52,18 @@ x-logging: &logging
 
 services:
   dex:
-    # PINNED BY DIGEST TO A `master` BUILD, DELIBERATELY — not a release tag.
+    # v2.46.0, PINNED BY DIGEST (the multi-arch index: amd64, arm64, arm/v7,
+    # ppc64le, s390x).
     #
-    # The logout features this stack depends on are merged upstream but
-    # UNRELEASED: RP-Initiated Logout (PR #4674) and Back-Channel Logout with a
-    # `sid` claim (PR #4945). The newest release, v2.45.1, predates both and
-    # advertises no logout of any kind — which is why "log out" could not log
-    # anybody out.
+    # The first release carrying the logout features this stack depends on:
+    # RP-Initiated Logout (PR #4674) and Back-Channel Logout with a `sid` claim
+    # (PR #4945). v2.45.1 predates both and advertises no logout of any kind —
+    # which is why "log out" could not log anybody out. Until this release the
+    # stack ran a 2026-08-06 `master` build (ab64ed7), which v2.46.0 contains.
     #
-    # By DIGEST and not `:master`, because `:master` is a moving tag: every push
-    # to trunk would silently reach every box on the next ensure-stack-pulled.sh.
-    # This digest is the 2026-08-06 build, verified to advertise
-    # end_session_endpoint + backchannel_logout_supported, and to be multi-arch
-    # (amd64, arm64, arm, ppc64le, s390x).
-    #
-    # REPIN TO A RELEASE as soon as one ships with both PRs (expected > v2.45.1).
-    # The delta from v2.45.1 is large — trunk restructured server/ into logout/,
-    # backchannel/, discovery/, consent/, mfa/ packages — so this is a bigger
-    # unreleased surface than "a logout patch" implies.
-    image: ghcr.io/dexidp/dex@sha256:af9469509350ff3f6ca70127175a58e5ab085b9d18740fa4a590d9f03f0a026b
+    # By DIGEST and not the tag alone, so that a re-pushed tag cannot silently
+    # reach every box on the next ensure-stack-pulled.sh.
+    image: ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
     container_name: dex
     hostname: dex
     cpu_shares: 80

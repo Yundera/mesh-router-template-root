@@ -20,7 +20,7 @@ there on every deploy.
 
 | Container | Image | Networks | Role |
 |---|---|---|---|
-| `dex` | `dexidp/dex` **by digest** (a `master` build) | `pcs`, `dex-internal` | OIDC broker. Web on `5556`, client-management gRPC on `5557` |
+| `dex` | `dexidp/dex:v2.46.0` **by digest** | `pcs`, `dex-internal` | OIDC broker. Web on `5556`, client-management gRPC on `5557` |
 | `authelia` | `authelia/authelia:4.39.x` | `pcs` | Local credential store, Dex's only built-in connector |
 | `auth-registrar` | `mesh-auth` | `pcs`, `dex-internal` | `POST /register` → creates the app's client in Dex over gRPC |
 | `auth-console` | `appshield` | `pcs` | AppShield gate, the only public route to the console |
