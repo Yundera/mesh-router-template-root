@@ -315,6 +315,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `MAISON_SETTINGS_OWNER` | `mesh` | The name Maison shows on the settings this template manages for it ("Managed by …"): mail, feedback, routing. An operator layer sets its own (template-root: `Yundera`) |
 | `IP_ZONE` | _(unset)_ | A nip.io-style zone served by a [mesh-router-nameserver](https://github.com/Yundera/mesh-router-nameserver) (`ip.nsl.sh`: `<ip-dashed>.ip.nsl.sh` → that IP). When set, the agent also registers `<ip-dashed>.<IP_ZONE>` routes beside the nip.io ones, and Maison publishes every app on `<app>-<ip-dashed>.<IP_ZONE>` too (`APP_IP_ZONE` in `.env.app`). The backend must sign `*.<IP_ZONE>` into box certificates (`CERT_EXTRA_SANS`). Inert when empty |
 | `REDIRECT_HOST_SUFFIXES` | _(derived)_ | The domains an app's login callback may land on, as `<app>-<suffix>`: the box's domain, nip.io, the `IP_ZONE` names when set, sslip.io. **Rewritten every self-check** from the same list Maison's routing setting is built from (`routing_domains` in `scripts/library/common.sh`), so a hand edit does not stick |
+| `ROUTING_DOMAINS` | _(derived)_ | The same domains with each one's proxy labels (`<suffix>[;<label>=<value>…]`, comma-separated, primary first), for a layer on top of this template to route its own stacks from (template-root reads it back). Rewritten every self-check, like the row above |
 
 **Not in the `.env`: a stack's own state.** A secret an ensure-script mints for one stack
 alone lives in that stack's folder, in `.stack.env` (0600, never regenerated). For the
@@ -339,6 +340,14 @@ Because the compose file and `Caddyfile` are template-owned, **hand-edits to the
 `docker-compose.yml` or `${DATA_ROOT}/AppData/mesh/Caddyfile` are lost on the next sync** —
 pin with `MESH_AUTO_UPDATE=false` if you need local changes. `.env` is the supported knob:
 it is only ever backfilled, never overwritten.
+
+**The platform's own routes are generated too.** No compose file here names a domain:
+`stacks/<stack>/routes` lists each stack's routes (`stacks/mesh/routes` for this compose), and
+every self-check renders them, once per routing domain, into `docker-compose.override.yml`
+beside the live stack (`render_routing_override` in `scripts/library/common.sh`). The routing
+domains are one list, `routing_domains` in the same file: Maison's app routes, the login
+suffixes and these all come from it. The bare `<ip>.<IP_ZONE>` host has no Caddyfile block:
+the custom-domain catch-all serves it.
 
 ### Manual run
 

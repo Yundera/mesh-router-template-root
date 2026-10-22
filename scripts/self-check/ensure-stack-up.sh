@@ -35,6 +35,12 @@ if [ ! -f "$MESH_ROOT/Caddyfile" ] || [ -d "$MESH_ROOT/Caddyfile" ]; then
     cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 fi
 
+# Mesh Console's routes, one per routing domain (render_routing_override in
+# library/common.sh): the compose file names no domain. `docker compose up` below
+# runs in $APP_DIR and loads docker-compose.override.yml by itself.
+render_routing_override "$(routing_domains_value)" "$TEMPLATE_DIR/stacks/mesh/routes" \
+    "$APP_DIR/docker-compose.override.yml"
+
 # The Dex login-theme files and the Authelia pin check that used to sit here moved
 # to ensure-auth-stack.sh with the services they protect.
 

@@ -1,0 +1,6 @@
+# This stack's routes: <service>|<name>|<port>, one per line. Rendered on every
+# self-check into docker-compose.override.yml beside the deployed stack, once per
+# routing domain of the box (routing_domains in scripts/library/common.sh), so the
+# compose file itself names no domain.
+# Mesh Console, this stack's web UI, through its gate.
+mesh-console|mesh-console|80

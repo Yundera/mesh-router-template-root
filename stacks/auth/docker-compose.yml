@@ -152,18 +152,6 @@ services:
     # No depends_on: authelia is in this stack but Dex must not block on it, and
     # Dex retries a connector's back-channel on use, so cold-boot ordering
     # resolves itself.
-    labels:
-      # Standard domain with custom CA (gateway-routed)
-      caddy_0: auth-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 5556}}"
-      # nip.io variant (custom CA) — REQUIRED: the CF worker rewrites Host to nip.io
-      caddy_1: auth-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 5556}}"
-      # sslip.io variant (Let's Encrypt)
-      caddy_2: auth-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 5556}}"
 
   # =============================================================================
   # AUTHELIA - local-account IdP, federated by Dex as the "Local Account" connector
@@ -202,20 +190,6 @@ services:
       - "9091"
     networks:
       pcs: null
-    labels:
-      # Standard domain with custom CA (gateway-routed). Distinct host from Dex's
-      # auth-${DOMAIN}: Dex is the broker, Authelia is the connector behind it.
-      caddy_0: local-auth-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 9091}}"
-      # nip.io variant — REQUIRED: the CF worker rewrites Host to nip.io, so that
-      # is the route CF traffic matches, and Dex's back-channel needs it to resolve.
-      caddy_1: local-auth-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 9091}}"
-      # sslip.io variant (Let's Encrypt)
-      caddy_2: local-auth-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 9091}}"
 
   # =============================================================================
   # AUTH-REGISTRAR - OIDC client self-registration for PCS apps
@@ -342,8 +316,8 @@ services:
       - "80"
     environment:
       OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Keep it
-      # matching the caddy_* labels below.
+      # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Both come
+      # from the routing domains this stack's routes are rendered from (stacks/*/routes).
       REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
       BACKEND_HOST: "auth-console-app"
       BACKEND_PORT: "8080"
@@ -367,18 +341,6 @@ services:
       - auth-registrar
     networks:
       pcs: null
-    labels:
-      # Standard domain with custom CA (gateway-routed)
-      caddy_0: auth-console-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      # nip.io variant (custom CA) — REQUIRED: the CF worker rewrites Host to nip.io
-      caddy_1: auth-console-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      # sslip.io variant (Let's Encrypt)
-      caddy_2: auth-console-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
 
   auth-console-app:
     # Publish the tag before moving this pin: a tag missing from ghcr costs every
@@ -448,7 +410,8 @@ networks:
 # Maison; older images derive the lifecycle guard from it, so it stays). Every login
 # on the box goes through this stack, so it declares itself neither stoppable nor
 # uninstallable, and opts out of backups. The tile opens auth-console; webui-host is
-# the only field Maison substitutes ${DOMAIN} into, and it must match the gate's caddy_0.
+# the only field Maison substitutes ${DOMAIN} into, and it must match the gate's route
+# (stacks/auth/routes).
 x-compose-app:
   schema_version: 2
   id: auth

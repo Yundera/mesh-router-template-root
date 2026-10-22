@@ -18,7 +18,8 @@
 # SECURITY: Maison has NO authentication of any kind (upstream non-goal) and it
 # mounts the Docker socket, so an exposed port is root on the host. It is never
 # published: the container only `expose`s 8080 on the internal `pcs` network, and the
-# ONLY route in is the AppShield gate below, which owns the caddy_* labels.
+# ONLY route in is the AppShield gate below, the service of this stack's one route
+# (stacks/maison/routes).
 # Never add a `ports:` mapping to the maison service.
 #
 # Ported from Yundera/template-root (root/stacks/maison/docker-compose.yml). The
@@ -55,7 +56,7 @@ services:
   # from a PTR lookup of the *caller's container name* on the pcs network, and then
   # only ever issues redirect URIs under `<client_id>-<suffix>`. Name this container
   # `maison-gate` and it registers callbacks for maison-gate-${DOMAIN} — a hostname
-  # the caddy_* labels below do not publish, so the OIDC callback lands on an
+  # this stack's route does not publish, so the OIDC callback lands on an
   # unrouted host and login dead-ends. The gate therefore takes the app's public
   # name; the backend gets the suffix.
   maison:
@@ -75,7 +76,7 @@ services:
       # sends its callback PATH and adopts the redirect_uris the registrar
       # returns, so the registrar's REDIRECT_HOST_SUFFIXES is what actually
       # decides. This list is the pre-registration guess, and what gets used if
-      # /register is unreachable — keep it matching the caddy_* labels below.
+      # /register is unreachable — the routing domains, like the stack's routes.
       #
       # It CANNOT express the host that matters most here. As the root app
       # (DEFAULT_SERVICE_HOST=maison), this gate is also served at the BARE
@@ -118,18 +119,6 @@ services:
       - maison-app
     networks:
       pcs: null
-    labels:
-      # Standard domain with custom CA (gateway-routed)
-      caddy_0: maison-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      # nip.io variant for direct access (custom CA)
-      caddy_1: maison-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      # sslip.io variant for direct access (Let's Encrypt)
-      caddy_2: maison-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
 
   # The dashboard itself. Named `maison-app` so the gate above can own the public
   # name `maison` — see the naming note there.
@@ -344,7 +333,7 @@ x-compose-app:
 
   # Rendered against this stack's .env, where deploy-stack.sh writes DOMAIN. The
   # address is the GATE (`maison-${DOMAIN}`), the only authenticated way in — it must
-  # match the caddy_0 label above.
+  # match the route in stacks/maison/routes.
   tips:
     en_us: |
       Maison is the dashboard you are using now. It is also reachable at

@@ -11,6 +11,7 @@
 #   2. generate <dest-dir>/.env with the keys the stack's compose file interpolates,
 #      from the mesh .env and <dest-dir>/.stack.env (the stack's own state), plus
 #      any extra KEY=value pairs given on the command line
+#   1d. render stacks/<stack-name>/routes into <dest-dir>/docker-compose.override.yml
 #   3. docker compose pull, then up -d --remove-orphans (both with backoff).
 #      Between the two: evict containers squatting this stack's names, then run
 #      stacks/<stack-name>/pre-up.sh <dest-dir> <dest-compose> if the stack ships
@@ -120,6 +121,14 @@ if [ -f "$SRC_README" ] && ! cmp -s "$SRC_README" "$DEST_DIR/README.md"; then
     echo "Updated $DEST_DIR/README.md from template"
 fi
 
+# --- 1d. routes ------------------------------------------------------------
+# The stack's routes (stacks/<name>/routes), one per routing domain, as labels in
+# docker-compose.override.yml (render_routing_override in library/common.sh): the
+# compose file names no domain, so the stack follows the box's domains the way
+# Maison's apps do. Looked up beside the picked compose, like the icon.
+render_routing_override "$(routing_domains_value)" "$(dirname "$SRC_COMPOSE")/routes" \
+    "$DEST_DIR/docker-compose.override.yml"
+
 # --- 2. .env ---------------------------------------------------------------
 TMP_ENV="$(mktemp)"
 chmod 600 "$TMP_ENV"
@@ -158,7 +167,7 @@ chown "${PUID:-1000}:${PGID:-1000}" "$DEST_ENV" 2>/dev/null || true
 
 # --- 3. pull + up ----------------------------------------------------------
 compose() {
-    docker compose --project-directory "$DEST_DIR" -f "$DEST_COMPOSE" "$@"
+    stack_compose "$DEST_DIR" "$@"
 }
 
 run_with_backoff() {

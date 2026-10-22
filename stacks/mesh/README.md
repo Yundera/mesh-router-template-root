@@ -94,7 +94,10 @@ to the tunnel.
 - **The three root addresses**, nothing else.
 
 Everything else comes from container labels, via caddy-docker-proxy on the `pcs`
-network (`CADDY_INGRESS_NETWORKS=pcs`). Every web service carries the same triple:
+network (`CADDY_INGRESS_NETWORKS=pcs`). No compose file writes them by hand: one group
+per route per **routing domain** (`routing_domains` in `scripts/library/common.sh`), written
+by Maison for store apps (from their `routes`) and by the template for its own stacks (from
+`stacks/<stack>/routes`, into `docker-compose.override.yml`). For a route `app` on port 8080:
 
 ```yaml
 labels:
@@ -104,8 +107,11 @@ labels:
   caddy_1: app-${PUBLIC_IP_DASH}.nip.io        # REQUIRED: what CF-worker traffic matches — mesh cert
   caddy_1.import: gateway_tls
   caddy_1.reverse_proxy: "{{upstreams 8080}}"
-  caddy_2: app-${PUBLIC_IP_DASH}.sslip.io      # direct — Let's Encrypt, so no import
+  caddy_2: app-${PUBLIC_IP_DASH}.${IP_ZONE}    # only with IP_ZONE: the mesh nameserver's names — mesh cert
+  caddy_2.import: gateway_tls
   caddy_2.reverse_proxy: "{{upstreams 8080}}"
+  caddy_3: app-${PUBLIC_IP_DASH}.sslip.io      # direct — Let's Encrypt, so no import
+  caddy_3.reverse_proxy: "{{upstreams 8080}}"
 ```
 
 **Root domain.** `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io` and `${PUBLIC_IP_DASH}.sslip.io`

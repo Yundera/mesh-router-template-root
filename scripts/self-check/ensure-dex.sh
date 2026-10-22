@@ -244,8 +244,7 @@ elif [ -f "$AUTH_STACK_DIR/docker-compose.yml" ]; then
         wait_for_authelia
     fi
     echo "Starting dex ($CONNECTOR_COUNT connector(s))"
-    docker compose --project-directory "$AUTH_STACK_DIR" -f "$AUTH_STACK_DIR/docker-compose.yml" \
-        up -d --quiet-pull --no-deps dex \
+    stack_compose "$AUTH_STACK_DIR" up -d --quiet-pull --no-deps dex \
         || log_warn "Could not start dex; the next ensure-auth-stack.sh run brings it up"
 else
     echo "The auth stack is not deployed yet; ensure-auth-stack.sh brings dex up"

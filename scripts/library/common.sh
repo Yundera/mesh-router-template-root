@@ -232,21 +232,27 @@ emit_env_for_compose() {
 
 # --- The box's routing domains ---------------------------------------------------
 #
-# One list, two consumers that must agree: Maison's managed `routing` setting (the
-# domains every app is published on) and the auth-registrar's REDIRECT_HOST_SUFFIXES
-# (the domains an app's OIDC callback may land on). A domain in the first and not the
-# second routes an app its login then refuses, which is how the ip zone shipped.
+# One list, every consumer: Maison's managed `routing` setting (the domains every app
+# is published on), the auth-registrar's REDIRECT_HOST_SUFFIXES (the domains an app's
+# OIDC callback may land on), and the routes of the platform's own stacks (maison,
+# auth, mesh-console here; admin and kopia in template-root, through ROUTING_DOMAINS).
+# A domain one of them lacks routes something its login then refuses, or leaves a
+# platform host to the catch-all — which is how the ip zone shipped.
 #
 # One line per domain, primary first (Maison opens tiles and names APP_URL there):
-#   <name>|<suffix>|<labels JSON object>
-# The suffix is written with the mesh .env's names, unexpanded.
+#   <name>|<suffix>|<label>=<value>[;<label>=<value>...]
+# The suffix is written with the mesh .env's names, unexpanded. The labels are the
+# proxy's, added to every route on the domain: gateway_tls is the box's own CA, which
+# the gateway and the CF worker trust; sslip.io has none and falls through to Let's
+# Encrypt. nip.io is not optional: the CF worker rewrites Host to it, so it is the
+# host Cloudflare traffic arrives on.
 routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
     {
-        printf '%s\n' 'gateway|${DOMAIN}|{"import":"gateway_tls"}'
-        printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|{"import":"gateway_tls"}'
+        printf '%s\n' 'gateway|${DOMAIN}|import=gateway_tls'
+        printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|import=gateway_tls'
         if [ -n "$(get_env_value IP_ZONE)" ]; then
-            printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|{"import":"gateway_tls"}'
+            printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
         fi
         printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
     }
@@ -256,26 +262,116 @@ routing_domains() {
 # gives every app (${APP_DOMAIN}, …), so a route follows the box when its IP or zone
 # changes without the setting being rewritten.
 routing_setting_json() {
-    local name suffix labels out=""
+    local name suffix labels l json out=""
+    local -a kv
     while IFS='|' read -r name suffix labels; do
         suffix="${suffix//\$\{/\$\{APP_}"
-        out+="${out:+,}{\"name\":\"$name\",\"domain\":\"{name}-$suffix\"${labels:+,\"labels\":$labels}}"
+        json=""
+        IFS=';' read -ra kv <<<"$labels"
+        for l in "${kv[@]}"; do
+            json+="${json:+,}\"${l%%=*}\":\"${l#*=}\""
+        done
+        [ -n "$json" ] && json=",\"labels\":{$json}"
+        out+="${out:+,}{\"name\":\"$name\",\"domain\":\"{name}-$suffix\"$json}"
     done < <(routing_domains)
     printf '{"renderer":"labels","dialect":"caddy","domains":[%s]}' "$out"
 }
 
-# The suffixes resolved against the mesh .env, comma-separated — the value of
-# REDIRECT_HOST_SUFFIXES. Empty when a value they need is not known yet.
-routing_host_suffixes() {
+# The domains resolved against the mesh .env, as one .env value: per domain
+# `<suffix>[;<label>=<value>...]`, comma-separated, primary first — ROUTING_DOMAINS,
+# which a layer on top of this template (template-root) renders its own stacks'
+# routes from. Empty when a value they need is not known yet.
+routing_domains_value() {
     local name suffix labels var out=""
     while IFS='|' read -r name suffix labels; do
         for var in DOMAIN PUBLIC_IP_DASH IP_ZONE; do
             suffix="${suffix//\$\{$var\}/$(get_env_value "$var")}"
         done
         case "$suffix" in "" | .* | *..* | *.) return 0 ;; esac
-        out+="${out:+,}$suffix"
+        out+="${out:+,}$suffix${labels:+;$labels}"
     done < <(routing_domains)
     printf '%s' "$out"
+}
+
+# The suffixes alone, comma-separated: REDIRECT_HOST_SUFFIXES.
+routing_host_suffixes() {
+    local entry out=""
+    local -a entries
+    IFS=',' read -ra entries <<<"$(routing_domains_value)"
+    for entry in "${entries[@]}"; do
+        out+="${out:+,}${entry%%;*}"
+    done
+    printf '%s' "$out"
+}
+
+# render_routing_override <domains> <routes-file> <out>
+#
+# A stack's routes as Caddy labels — one group per route per domain — in a compose
+# override beside the stack: how the platform's own stacks follow the box's domains,
+# the way Maison does it for store apps. <domains> is a ROUTING_DOMAINS value;
+# <routes-file> lists the stack's routes, `<service>|<name>|<port>` per line, `#` for
+# comments. Written only when it changes. With <domains> empty (the IP not known yet)
+# nothing is written, so the stack keeps the routes it had.
+#
+# The override's name is the one compose loads by itself, so a hand-run
+# `docker compose up` in the stack's folder, and Maison starting the stack, carry the
+# routes too. A caller passing -f explicitly must pass it (stack_compose below).
+render_routing_override() {
+    local domains="$1" spec="$2" out="$3"
+    local svc name port entry suffix l n tmp
+    local -a services=() entries=() kv=()
+    local -A labels=() count=()
+    [ -n "$domains" ] && [ -f "$spec" ] || return 0
+    IFS=',' read -ra entries <<<"$domains"
+    while IFS='|' read -r svc name port; do
+        svc="${svc//[[:space:]]/}" name="${name//[[:space:]]/}" port="${port//[[:space:]]/}"
+        case "$svc" in "" | \#*) continue ;; esac
+        if [ -z "${count[$svc]+set}" ]; then
+            services+=("$svc")
+            count[$svc]=0
+        fi
+        for entry in "${entries[@]}"; do
+            suffix="${entry%%;*}"
+            n="${count[$svc]}"
+            labels[$svc]+="      caddy_$n: $name-$suffix"$'\n'
+            if [ "$entry" != "$suffix" ]; then
+                IFS=';' read -ra kv <<<"${entry#*;}"
+                for l in "${kv[@]}"; do
+                    labels[$svc]+="      caddy_$n.${l%%=*}: ${l#*=}"$'\n'
+                done
+            fi
+            labels[$svc]+="      caddy_$n.reverse_proxy: \"{{upstreams $port}}\""$'\n'
+            count[$svc]=$((n + 1))
+        done
+    done < <(tr -d '\r' <"$spec")
+
+    tmp="$(mktemp)"
+    {
+        echo "# GENERATED by the mesh template from the box's routing domains and"
+        echo "# $(basename "$(dirname "$spec")")/routes — rewritten on every self-check, do not edit."
+        echo "services:"
+        for svc in "${services[@]}"; do
+            printf '  %s:\n    labels:\n%s' "$svc" "${labels[$svc]}"
+        done
+    } >"$tmp"
+    if cmp -s "$tmp" "$out"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    mv "$tmp" "$out"
+    chmod 644 "$out"
+    echo "Updated $out from the routing domains"
+}
+
+# stack_compose <dir> <compose args...> — docker compose on a stack folder with its
+# routes: -f disables compose's own lookup of docker-compose.override.yml, so a caller
+# that names the compose file names the override too.
+stack_compose() {
+    local dir="$1"
+    shift
+    local -a files=(-f "$dir/docker-compose.yml")
+    [ -f "$dir/docker-compose.override.yml" ] && files+=(-f "$dir/docker-compose.override.yml")
+    docker compose --project-directory "$dir" "${files[@]}" "$@"
 }
 
 # Default branch when nothing is configured.

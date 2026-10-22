@@ -18,7 +18,7 @@ there on every deploy.
 
 | Container | Image | Networks | Role |
 |---|---|---|---|
-| `maison` | `appshield` | `pcs` | AppShield gate. Owns the `caddy_*` labels, listens on `80`, runs as root |
+| `maison` | `appshield` | `pcs` | AppShield gate. The service of the stack's route (`routes`), listens on `80`, runs as root |
 | `maison-app` | `maison` | `pcs` | The dashboard on `8080`. Holds the Docker socket, `${DATA_ROOT}` (rshared) and the host's `/proc` read-only |
 
 **The names matter.** auth-registrar derives the gate's `client_id` from the caller's
@@ -106,7 +106,7 @@ field in preference to `x-casaos`:
   link would only reopen the same page. Clicking it opens its settings instead.
 - `tips` keeps the address, `https://maison-${DOMAIN}/`, for completeness. Tips are
   rendered against the stack's `.env`, which carries `DOMAIN`. It points at the gate
-  and must match `caddy_0`.
+  and must match the route (`routes`).
 - The tile image comes from `.icon.png`, which deploy-stack.sh copies in. There is no
   `icon:` URL fallback.
 

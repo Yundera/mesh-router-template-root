@@ -194,8 +194,8 @@ services:
       - "80"
     environment:
       OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Keep it
-      # matching the caddy_* labels below.
+      # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Both come
+      # from the routing domains this stack's routes are rendered from (stacks/*/routes).
       REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
       BACKEND_HOST: "mesh-console-app"
       BACKEND_PORT: "8080"
@@ -234,18 +234,6 @@ services:
       - mesh-console-app
     networks:
       pcs: null
-    labels:
-      # Standard domain with custom CA (gateway-routed)
-      caddy_0: mesh-console-${DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      # nip.io variant (custom CA) — REQUIRED: the CF worker rewrites Host to nip.io
-      caddy_1: mesh-console-${PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      # sslip.io variant (Let's Encrypt)
-      caddy_2: mesh-console-${PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
 
   mesh-console-app:
     image: ghcr.io/yundera/mesh-console:1.5.0
@@ -308,7 +296,7 @@ volumes:
 #
 # The tile opens Mesh Console, this stack's own web UI — through its gate, the
 # only authenticated way in. `webui-host` is the only field Maison substitutes
-# ${DOMAIN} into; it must match the mesh-console service's caddy_0.
+# ${DOMAIN} into; it must match the mesh-console route (stacks/mesh/routes).
 x-compose-app:
   schema_version: 2
   id: mesh
