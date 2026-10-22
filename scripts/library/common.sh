@@ -230,6 +230,54 @@ emit_env_for_compose() {
     done
 }
 
+# --- The box's routing domains ---------------------------------------------------
+#
+# One list, two consumers that must agree: Maison's managed `routing` setting (the
+# domains every app is published on) and the auth-registrar's REDIRECT_HOST_SUFFIXES
+# (the domains an app's OIDC callback may land on). A domain in the first and not the
+# second routes an app its login then refuses, which is how the ip zone shipped.
+#
+# One line per domain, primary first (Maison opens tiles and names APP_URL there):
+#   <name>|<suffix>|<labels JSON object>
+# The suffix is written with the mesh .env's names, unexpanded.
+routing_domains() {
+    # shellcheck disable=SC2016 # expanded by the renderers below, not here
+    {
+        printf '%s\n' 'gateway|${DOMAIN}|{"import":"gateway_tls"}'
+        printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|{"import":"gateway_tls"}'
+        if [ -n "$(get_env_value IP_ZONE)" ]; then
+            printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|{"import":"gateway_tls"}'
+        fi
+        printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
+    }
+}
+
+# Maison's `routing` setting, as JSON. Hosts stay templated with the names .env.app
+# gives every app (${APP_DOMAIN}, …), so a route follows the box when its IP or zone
+# changes without the setting being rewritten.
+routing_setting_json() {
+    local name suffix labels out=""
+    while IFS='|' read -r name suffix labels; do
+        suffix="${suffix//\$\{/\$\{APP_}"
+        out+="${out:+,}{\"name\":\"$name\",\"domain\":\"{name}-$suffix\"${labels:+,\"labels\":$labels}}"
+    done < <(routing_domains)
+    printf '{"renderer":"labels","dialect":"caddy","domains":[%s]}' "$out"
+}
+
+# The suffixes resolved against the mesh .env, comma-separated — the value of
+# REDIRECT_HOST_SUFFIXES. Empty when a value they need is not known yet.
+routing_host_suffixes() {
+    local name suffix labels var out=""
+    while IFS='|' read -r name suffix labels; do
+        for var in DOMAIN PUBLIC_IP_DASH IP_ZONE; do
+            suffix="${suffix//\$\{$var\}/$(get_env_value "$var")}"
+        done
+        case "$suffix" in "" | .* | *..* | *.) return 0 ;; esac
+        out+="${out:+,}$suffix"
+    done < <(routing_domains)
+    printf '%s' "$out"
+}
+
 # Default branch when nothing is configured.
 MESH_DEFAULT_CHANNEL="stable"
 mesh_channel_url() {

@@ -196,7 +196,7 @@ services:
       OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
       # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Keep it
       # matching the caddy_* labels below.
-      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
       BACKEND_HOST: "mesh-console-app"
       BACKEND_PORT: "8080"
       LISTEN_PORT: "80"

@@ -23,6 +23,9 @@ ensure-template-sync.sh
 
 # Stack
 ensure-public-ip.sh
+# REDIRECT_HOST_SUFFIXES from the routing domains. After ensure-public-ip.sh (the
+# suffixes embed the IP), before any stack comes up (the auth-registrar reads it).
+ensure-routing-domains.sh
 ensure-email-synced.sh
 # ensure-authelia.sh also writes Authelia's Dex connector, the "Local Account"
 # drop-in (dex/connectors.d/authelia.yaml), once the owner account is claimed.

@@ -258,9 +258,10 @@ services:
       DEX_CLIENTS_DIR: /tmp/dex-clients
       # Allowed redirect-URI host suffixes (comma-separated). An app's permitted
       # hosts are <app>-<suffix> for each; the registrar verifies every requested
-      # callback against this exact set. Must list the SAME suffixes the apps'
-      # caddy_* labels use — the user domain plus the IP-based fallbacks.
-      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      # callback against this exact set. The .env value is derived from the box's
+      # routing domains (ensure-routing-domains.sh), the list Maison publishes
+      # apps on; the default here only covers a box that has not run it yet.
+      REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
       # The one app allowed to register callbacks on the BARE suffixes
       # (${DOMAIN} itself, not just <app>-${DOMAIN}) — i.e. whoever the root
       # domain reverse-proxies to in the Caddyfile.
@@ -343,7 +344,7 @@ services:
       OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
       # Fallback only — the registrar's own REDIRECT_HOST_SUFFIXES decides. Keep it
       # matching the caddy_* labels below.
-      REDIRECT_HOST_SUFFIXES: "${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io"
+      REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
       BACKEND_HOST: "auth-console-app"
       BACKEND_PORT: "8080"
       LISTEN_PORT: "80"

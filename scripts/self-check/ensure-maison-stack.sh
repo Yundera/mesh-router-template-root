@@ -133,22 +133,13 @@ fi
 # Routing: every app on the box's domain, nip.io and sslip.io — what store listings
 # that ship their own caddy labels already have, stated for listings that ship
 # `routes` and no labels — plus the mesh-router-nameserver's names when the .env has
-# IP_ZONE. Hosts stay templated (${APP_...} from .env.app), so they follow the box
-# when its IP or zone changes. Maison republishes every app only when the value
-# differs from the stored one, so re-asserting it every run costs nothing. A Maison
-# older than the routing setting (1.1.80) refuses it, which fails this check until
-# the pinned image is running.
-ROUTING_IP_ZONE=""
-if [ -n "$(env_get IP_ZONE)" ]; then
-    # shellcheck disable=SC2016 # ${APP_...} is for Compose to interpolate, not us
-    ROUTING_IP_ZONE=',{"name":"ip","domain":"{name}-${APP_PUBLIC_IP_DASH}.${APP_IP_ZONE}","labels":{"import":"gateway_tls"}}'
-fi
-# shellcheck disable=SC2016 # ${APP_...} is for Compose to interpolate, not us
-printf '{"renderer":"labels","dialect":"caddy","domains":[%s%s,%s]}' \
-    '{"name":"gateway","domain":"{name}-${APP_DOMAIN}","labels":{"import":"gateway_tls"}},{"name":"nip","domain":"{name}-${APP_PUBLIC_IP_DASH}.nip.io","labels":{"import":"gateway_tls"}}' \
-    "$ROUTING_IP_ZONE" \
-    '{"name":"sslip","domain":"{name}-${APP_PUBLIC_IP_DASH}.sslip.io"}' \
-    | maison_cli settings set routing --owner "$OWNER" || CLI_FAILED=1
+# IP_ZONE. The list is routing_domains (library/common.sh), the same one the
+# auth-registrar's REDIRECT_HOST_SUFFIXES is built from, so every host an app is
+# published on is one its login accepts. Maison republishes every app only when the
+# value differs from the stored one, so re-asserting it every run costs nothing. A
+# Maison older than the routing setting (1.1.80) refuses it, which fails this check
+# until the pinned image is running.
+routing_setting_json | maison_cli settings set routing --owner "$OWNER" || CLI_FAILED=1
 
 # The store: the user's list, but the deployment's own store is always on it.
 STORE_URL="$(env_get APPSTORE_URL)"
