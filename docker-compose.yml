@@ -117,6 +117,13 @@ services:
     environment:
       - CADDY_DOCKER_CADDYFILE_PATH=/etc/caddy/Caddyfile
       - CADDY_INGRESS_NETWORKS=pcs
+      # Each generation re-adapts the whole config: 2-3 CPU-seconds on a box with ~50 apps.
+      # Container events already trigger one, so the poll is only there for a base Caddyfile
+      # edit (nightly template sync): 5m instead of the 30s default. The throttle folds one
+      # container's create/start/die/destroy into a single generation; the cost is that a
+      # restarted app's new IP reaches Caddy up to 3s later (default 100ms).
+      - CADDY_DOCKER_POLLING_INTERVAL=5m
+      - CADDY_DOCKER_EVENT_THROTTLE_INTERVAL=3s
       - PCS_EMAIL=${EMAIL}
       - DOMAIN=${DOMAIN}
       - PUBLIC_IP_DASH=${PUBLIC_IP_DASH}

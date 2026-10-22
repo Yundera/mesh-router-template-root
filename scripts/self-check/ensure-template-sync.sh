@@ -144,7 +144,8 @@ echo "Template revision: ${TEMPLATE_COMMIT:-unknown}"
 #     reload` of the base file replaced the whole running config, dropping every
 #     label-derived route until caddy-docker-proxy's next generation — up to
 #     30s of every app hostname falling through to the catch-all. Reload is now
-#     caddy-docker-proxy's job, on its own polling interval. The in-place rule
+#     caddy-docker-proxy's job, on its own polling interval (5m, set by
+#     CADDY_DOCKER_POLLING_INTERVAL in the mesh compose). The in-place rule
 #     above still stands on the inode argument alone; do NOT switch to mv.)
 mkdir -p "$MESH_ROOT"
 if [ -d "$MESH_ROOT/Caddyfile" ]; then

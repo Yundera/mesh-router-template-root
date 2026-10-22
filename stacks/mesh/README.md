@@ -114,6 +114,12 @@ labels:
   caddy_3.reverse_proxy: "{{upstreams 8080}}"
 ```
 
+caddy-docker-proxy rebuilds the whole config on container events (throttled to one
+rebuild per 3s, `CADDY_DOCKER_EVENT_THROTTLE_INTERVAL`) and on a 5-minute poll
+(`CADDY_DOCKER_POLLING_INTERVAL`), which is also how a base Caddyfile edit takes effect.
+A rebuild costs seconds of CPU on a box with many apps, so anything that creates and
+removes containers in a loop is felt by the whole box.
+
 **Root domain.** `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io` and `${PUBLIC_IP_DASH}.sslip.io`
 are defined **only** in the Caddyfile and reverse-proxy to
 `DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT`. The same target serves the custom-domain
