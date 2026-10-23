@@ -57,7 +57,7 @@ services:
       - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:1.1.2
+    image: ghcr.io/yundera/mesh-router-agent:1.1.3
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     cpu_shares: 90
@@ -66,8 +66,8 @@ services:
     environment:
       - PROVIDER=${PROVIDER_STR:-${PROVIDER}}
       - PUBLIC_IP=${PUBLIC_IP}
-      # Also register <ip-dashed>.${IP_ZONE} routes (mesh-router-nameserver), one
-      # priority step behind the nip.io ones. Empty: nip.io only.
+      # Register <ip-dashed>.${IP_ZONE} routes (mesh-router-nameserver) instead of
+      # nip.io ones (agent >= 1.1.3; older agents add them beside nip.io). Empty: nip.io.
       - IP_ZONE=${IP_ZONE:-}
       # Dual-port support for transparent HTTP/HTTPS routing
       - TARGET_PORT_HTTPS=443
