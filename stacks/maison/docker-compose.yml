@@ -83,7 +83,7 @@ services:
       # ${DOMAIN}, and `<app>-<suffix>` has no way to say that — which is why the
       # registrar has to be the one to answer (see ROOT_CLIENT_ID on
       # auth-registrar in the auth stack).
-      REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN},${PUBLIC_IP_DASH}.nip.io,${PUBLIC_IP_DASH}.sslip.io}"
+      REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN}}"
       BACKEND_HOST: "maison-app"
       BACKEND_PORT: "8080"
       LISTEN_PORT: "80"
