@@ -590,10 +590,11 @@ step_start_apps() {
     return 0
 }
 
-# The target's own name, before any cutover: mesh-console's public health
-# endpoint through Caddy on <ip-dash>.nip.io (the mesh CA's certificate, hence -k).
+# The target before any cutover: mesh-console's public health endpoint through
+# Caddy, on the box's own name pinned to the target IP (the mesh CA's certificate,
+# hence -k). Every template version serves it; nip.io is gone when IP_ZONE is set.
 step_verify_target() {
-    local host="mesh-console-$TARGET_IP_DASH.nip.io" i
+    local host="mesh-console-$DOMAIN" i
     for i in $(seq 1 30); do
         if curl -fsSk --max-time 10 --resolve "$host:443:$(curl_host "$TARGET_IP")" \
             "https://$host/api/health" >/dev/null 2>&1; then

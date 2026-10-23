@@ -244,15 +244,18 @@ emit_env_for_compose() {
 # The suffix is written with the mesh .env's names, unexpanded. The labels are the
 # proxy's, added to every route on the domain: gateway_tls is the box's own CA, which
 # the gateway and the CF worker trust; sslip.io has none and falls through to Let's
-# Encrypt. nip.io is not optional: the CF worker rewrites Host to it, so it is the
-# host Cloudflare traffic arrives on.
+# Encrypt. The CF worker reaches the box on <app>-<ip>.<IP_ZONE>, falling back to
+# sslip.io; it uses nip.io only for a box without IP_ZONE, whose agent registers
+# nip.io routes.
 routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
     {
         printf '%s\n' 'gateway|${DOMAIN}|import=gateway_tls'
-        printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|import=gateway_tls'
+        # The ip zone replaces nip.io; agent 1.1.3 registers nip.io routes only without it
         if [ -n "$(get_env_value IP_ZONE)" ]; then
             printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
+        else
+            printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|import=gateway_tls'
         fi
         printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
     }

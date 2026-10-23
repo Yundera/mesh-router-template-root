@@ -12,8 +12,9 @@ routes, **mesh-router-tunnel** over WireGuard), terminates TLS and routes by hos
 | `mesh-console-${DOMAIN}` | Mesh Console: status, routing, updates, root-domain app (also the **Mesh Router** tile) |
 | any unknown host pointed at the box | Catch-all → the same target as the root domain |
 
-Each host also answers on the `-${PUBLIC_IP_DASH}.nip.io` and `.sslip.io` variants (the
-root domain as the bare `${PUBLIC_IP_DASH}.nip.io` / `.sslip.io`).
+Each host also answers on the `-${PUBLIC_IP_DASH}.${IP_ZONE}` variant (or
+`-${PUBLIC_IP_DASH}.nip.io` on a box without `IP_ZONE`) and the `.sslip.io` one. The
+root domain answers on the bare `${PUBLIC_IP_DASH}.nip.io` / `.sslip.io`.
 
 Deployed to `${DATA_ROOT}/AppData/mesh` (project name `mesh`). Its compose file is the
 repo-root `docker-compose.yml`. This README's source lives under `stacks/mesh/` because
@@ -78,7 +79,7 @@ copied, so a failed migration leaves the box on its current version.
 **Agent and tunnel.** Both authenticate with `PROVIDER_STR` =
 `<backend_url>,<userid>,<signature>`, an Ed25519 signature over the userid. The backend
 verifies it against the stored public key. The agent registers this box's direct routes
-(`PUBLIC_IP` and its nip.io / sslip.io forms). The tunnel registers a WireGuard route as
+(`<ip-dashed>.${IP_ZONE}`, or `<ip-dashed>.nip.io` without `IP_ZONE`). The tunnel registers a WireGuard route as
 the fallback when the box is not directly reachable. Routes expire after ~10 minutes and
 both services re-register on their own loops. The gateway prefers direct and falls back
 to the tunnel.
@@ -90,7 +91,7 @@ to the tunnel.
   leaves) that stops the retry storm on unissuable hostnames.
 - **`(gateway_tls)`.** Serves the mesh certificate (`/certs/cert.pem`, `key.pem`, written
   by the agent), which the gateways trust. It also restores `Host` from
-  `X-Original-Host`, because the CF worker rewrites `Host` to the nip.io name.
+  `X-Original-Host`, because the CF worker rewrites `Host` to the box's IP name.
 - **The three root addresses**, nothing else.
 
 Everything else comes from container labels, via caddy-docker-proxy on the `pcs`
@@ -104,15 +105,15 @@ labels:
   caddy_0: app-${DOMAIN}                       # via the gateway — mesh cert
   caddy_0.import: gateway_tls
   caddy_0.reverse_proxy: "{{upstreams 8080}}"
-  caddy_1: app-${PUBLIC_IP_DASH}.nip.io        # REQUIRED: what CF-worker traffic matches — mesh cert
+  caddy_1: app-${PUBLIC_IP_DASH}.${IP_ZONE}    # REQUIRED: what CF-worker traffic matches — mesh cert
   caddy_1.import: gateway_tls
   caddy_1.reverse_proxy: "{{upstreams 8080}}"
-  caddy_2: app-${PUBLIC_IP_DASH}.${IP_ZONE}    # only with IP_ZONE: the mesh nameserver's names — mesh cert
-  caddy_2.import: gateway_tls
+  caddy_2: app-${PUBLIC_IP_DASH}.sslip.io      # direct, and the CF worker's fallback — Let's Encrypt, so no import
   caddy_2.reverse_proxy: "{{upstreams 8080}}"
-  caddy_3: app-${PUBLIC_IP_DASH}.sslip.io      # direct — Let's Encrypt, so no import
-  caddy_3.reverse_proxy: "{{upstreams 8080}}"
 ```
+
+Without `IP_ZONE` (FOSS boxes), `caddy_1` is `app-${PUBLIC_IP_DASH}.nip.io` instead:
+the agent registers nip.io routes there.
 
 caddy-docker-proxy rebuilds the whole config on container events (throttled to one
 rebuild per 3s, `CADDY_DOCKER_EVENT_THROTTLE_INTERVAL`) and on a 5-minute poll
@@ -238,7 +239,7 @@ curl -s -D- -o /dev/null -H 'X-Mesh-Force: tunnel' -H 'X-Mesh-Trace: 1' https://
 | Caddy won't start: `Caddyfile … not a directory` | `compose up` ran before the file existed and Docker created a directory. `ensure-stack-up.sh` removes it and restores the file |
 | Root domain 502, every `<app>-${DOMAIN}` fine | `DEFAULT_SERVICE_HOST` is not on `pcs` (or a typo). `ensure-root-domain.sh` reports it |
 | Apex serves the wrong app, or both | A container claims a root address with a `caddy_*` label |
-| `<app>-${DOMAIN}` works via sslip.io but not via the domain | `caddy_1` (nip.io) label missing. The CF worker routes on it |
+| `<app>-${DOMAIN}` works via sslip.io but not via the domain | `caddy_1` (`${IP_ZONE}`, or nip.io without it) label missing. The CF worker routes on it |
 | Caddyfile edit not picked up | It was replaced with `mv`: a single-file bind mount pins the inode. Copy in place |
 | Box goes dark ~10 min after an update | Agent/tunnel started with an empty `PROVIDER`; see the transition shim |
 | `no routes registered` | Bad `PROVIDER_STR` signature or backend down. `docker logs mesh-router-agent` |

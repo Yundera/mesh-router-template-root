@@ -163,7 +163,7 @@ immediately instead of restarting stacks mid-copy. No new lock mechanism is need
 | `offline_copy` | down | rsync delta with `--delete`; then the user apps' named volumes, host `tar` streamed between the two volumes' `Mountpoint`s (any Docker data-root, no image pull) |
 | `target_up` | down | write the **routing hold** on the target, then run its `self-check.sh` over SSH: Docker, public IP, stacks up, **no route published** |
 | `start_apps` | down | `compose up -d` of each user app on the target; failures reported, not fatal |
-| `verify_target` | down | `mesh-console-<ip-dash>.nip.io/api/health` answers at the target IP, before any cutover |
+| `verify_target` | down | `mesh-console-<domain>/api/health` answers at the target IP (pinned with `--resolve`), before any cutover |
 | `cutover` | down | source: write the routing hold and remove agent/tunnel, then drop its routes (`DELETE /routes/:userid/:sig`, signed with its own `PROVIDER_STR`). Target: remove the hold and run `ensure-stack-up.sh` |
 | `verify_domain` | target | `GET /routes/:userid` lists only target `agent` routes, and `mesh-console-<domain>/api/health` answers through the domain |
 | `retire` | target | routing hold on the source becomes permanent ("retired, now served by X"), and the log is copied to the target |

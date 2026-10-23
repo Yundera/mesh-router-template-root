@@ -11,7 +11,7 @@ the stack's web UI.
 | `local-auth-${DOMAIN}` | Authelia — the "Local Account" login and password reset |
 | `auth-console-${DOMAIN}` | auth-console — Account and Access pages (also the Maison **Auth** tile) |
 
-Each host also answers on the `-${PUBLIC_IP_DASH}.nip.io` and `.sslip.io` variants.
+Each host also answers on the `-${PUBLIC_IP_DASH}.${IP_ZONE}` (nip.io without `IP_ZONE`) and `.sslip.io` variants.
 
 Deployed to `${DATA_ROOT}/AppData/auth` (project name `auth`). This README is copied
 there on every deploy.

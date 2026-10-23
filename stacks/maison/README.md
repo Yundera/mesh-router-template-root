@@ -9,7 +9,7 @@ authentication of its own**, so an AppShield gate in the same stack is the only 
 | `maison-${DOMAIN}` | The gate, then the dashboard |
 | `${DOMAIN}` (bare) | Also Maison by default, through the Caddyfile's root route (`DEFAULT_SERVICE_HOST=maison`) |
 
-The gate also answers on the `-${PUBLIC_IP_DASH}.nip.io` and `.sslip.io` variants.
+The gate also answers on the `-${PUBLIC_IP_DASH}.${IP_ZONE}` (nip.io without `IP_ZONE`) and `.sslip.io` variants.
 
 Deployed to `${DATA_ROOT}/AppData/maison` (project name `maison`). This README is copied
 there on every deploy.
