@@ -306,6 +306,14 @@ routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
     {
         printf '%s\n' 'gateway|${DOMAIN}|import=gateway_tls'
+        # Dot form <app>.${DOMAIN} once the box holds its DNS-01 wildcard
+        # (ensure-dns-delegation.sh): no labels, the wildcard site's certificate covers it.
+        # Store apps only (Maison): the {name} template is skipped by the resolved lists
+        # below, so the platform stacks, ROUTING_DOMAINS and the registrar keep the
+        # dash form.
+        if [ "$(get_env_value DNS_DOT_FORM)" = "1" ]; then
+            printf '%s\n' 'dot|{name}.${DOMAIN}|'
+        fi
         # The ip zone replaces nip.io; agent 1.1.3 registers nip.io routes only without it
         if [ -n "$(get_env_value IP_ZONE)" ]; then
             printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
@@ -330,7 +338,9 @@ routing_setting_json() {
             json+="${json:+,}\"${l%%=*}\":\"${l#*=}\""
         done
         [ -n "$json" ] && json=",\"labels\":{$json}"
-        out+="${out:+,}{\"name\":\"$name\",\"domain\":\"{name}-$suffix\"$json}"
+        # a suffix that places {name} itself (dot form) is the whole host template
+        case "$suffix" in *"{name}"*) ;; *) suffix="{name}-$suffix" ;; esac
+        out+="${out:+,}{\"name\":\"$name\",\"domain\":\"$suffix\"$json}"
     done < <(routing_domains)
     printf '{"renderer":"labels","dialect":"caddy","domains":[%s]}' "$out"
 }
@@ -342,6 +352,8 @@ routing_setting_json() {
 routing_domains_value() {
     local name suffix labels var out=""
     while IFS='|' read -r name suffix labels; do
+        # dash-form consumers only (see routing_domains)
+        case "$suffix" in *"{name}"*) continue ;; esac
         for var in DOMAIN PUBLIC_IP_DASH IP_ZONE; do
             suffix="${suffix//\$\{$var\}/$(get_env_value "$var")}"
         done
@@ -360,6 +372,40 @@ routing_host_suffixes() {
         out+="${out:+,}${entry%%;*}"
     done
     printf '%s' "$out"
+}
+
+# The suffixes apps are also reached on in dot form, <app>.<suffix>: the box's domain
+# while it serves the dot form (DNS_DOT_FORM=1), else empty. REDIRECT_DOT_SUFFIXES,
+# for the auth-registrar.
+routing_dot_suffixes() {
+    if [ "$(get_env_value DNS_DOT_FORM)" = "1" ] && [ -n "$(get_env_value DOMAIN)" ]; then
+        get_env_value DOMAIN
+    fi
+}
+
+# Files of the box's DNS delegation state, read by mesh-router-caddy at /data/dns
+# (Caddyfile imports + the entrypoint's tls_passthrough). Root-only: the delegated
+# wildcard.caddy holds the box's route signature (acme-dns password).
+DNS_STATE_DIR="$MESH_ROOT/data/dns"
+
+# Not-delegated content of the Caddyfile hooks (= the config before the hooks existed).
+DNS_SITE_TLS_DEFAULT='(site_tls) {
+    import gateway_tls
+}'
+
+# Seed the hooks the Caddyfile imports when they are missing, so a Caddyfile with the
+# imports never meets a box without the files (Caddy refuses a missing import).
+ensure_dns_state_files() {
+    mkdir -p "$DNS_STATE_DIR"
+    chmod 700 "$DNS_STATE_DIR"
+    if [ ! -f "$DNS_STATE_DIR/site_tls.caddy" ]; then
+        printf '%s\n' "$DNS_SITE_TLS_DEFAULT" >"$DNS_STATE_DIR/site_tls.caddy"
+        chmod 600 "$DNS_STATE_DIR/site_tls.caddy"
+    fi
+    if [ ! -f "$DNS_STATE_DIR/wildcard.caddy" ]; then
+        : >"$DNS_STATE_DIR/wildcard.caddy"
+        chmod 600 "$DNS_STATE_DIR/wildcard.caddy"
+    fi
 }
 
 # render_routing_override <domains> <routes-file> <out>

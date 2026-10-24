@@ -208,7 +208,7 @@ services:
   # this is invisible.
   # =============================================================================
   auth-registrar:
-    image: ghcr.io/yundera/mesh-auth:1.1.8
+    image: ghcr.io/yundera/mesh-auth:1.1.9
     container_name: auth-registrar
     hostname: auth-registrar
     cpu_shares: 40
@@ -236,6 +236,10 @@ services:
       # routing domains (ensure-routing-domains.sh), the list Maison publishes
       # apps on; the default here only covers a box that has not run it yet.
       REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN}}"
+      # Suffixes apps are also reached on as <app>.<suffix>: the box's domain once its
+      # zone is delegated and Caddy holds the DNS-01 wildcard (DNS_DOT_FORM, written by
+      # ensure-dns-delegation.sh / ensure-routing-domains.sh). Empty = dash form only.
+      REDIRECT_DOT_SUFFIXES: "${REDIRECT_DOT_SUFFIXES:-}"
       # The one app allowed to register callbacks on the BARE suffixes
       # (${DOMAIN} itself, not just <app>-${DOMAIN}) — i.e. whoever the root
       # domain reverse-proxies to in the Caddyfile.

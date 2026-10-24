@@ -23,6 +23,9 @@ ensure-template-sync.sh
 
 # Stack
 ensure-public-ip.sh
+# Box zone delegated to the mesh nameservers: Caddy's DNS-01 wildcard, the root's TLS,
+# and DNS_DOT_FORM (read by ensure-routing-domains.sh). Before the stacks come up.
+ensure-dns-delegation.sh
 # REDIRECT_HOST_SUFFIXES from the routing domains. After ensure-public-ip.sh (the
 # suffixes embed the IP), before any stack comes up (the auth-registrar reads it).
 ensure-routing-domains.sh
