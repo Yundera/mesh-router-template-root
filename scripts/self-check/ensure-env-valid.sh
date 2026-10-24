@@ -118,6 +118,20 @@ if [ -n "$CURRENT_IP" ]; then
     fi
 fi
 
+# Routing force (see routing_force_sync_env in library/common.sh). An unknown value
+# reads as auto everywhere; say so, then keep the derived agent priority in step,
+# including after a hand edit of MESH_ROUTING_FORCE.
+FORCE_RAW="$(get_env_value MESH_ROUTING_FORCE)"
+case "$FORCE_RAW" in
+    ''|auto|tunnel) ;;
+    *) echo "WARN: unknown MESH_ROUTING_FORCE='$FORCE_RAW', treated as auto" ;;
+esac
+SYNC_OUT="$(routing_force_sync_env)"
+if [ -n "$SYNC_OUT" ]; then
+    echo "$SYNC_OUT"
+    FIXED=1
+fi
+
 chmod 600 "$ENV_FILE"
 
 if [ "$FIXED" -eq 0 ]; then

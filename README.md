@@ -306,6 +306,7 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 | `DEFAULT_SERVICE_HOST` | `maison` | Container answering on the root domain and the custom-domain catch-all. Must be on the `pcs` network — see [the mesh stack README](stacks/mesh/README.md) |
 | `DEFAULT_SERVICE_PORT` | `80` | Port that container listens on |
 | `PUBLIC_IP_MODE` | `egress` | How `ensure-public-ip.sh` finds this box's address. `egress`: ask the outside world which address the box connects from — right behind NAT (a home server with forwarded ports). `interface`: take the globally-routable address on a local interface and nothing else — right for a cloud VM, where the egress address can be an upstream NAT gateway that is not this machine; an address the backend cannot ping is dropped, and IPv6 is used when the box has no public IPv4 of its own |
+| `MESH_ROUTING_FORCE` | `auto` | The path public traffic takes behind the gateway. `auto`: the agent's direct route (priority 1) wins whenever the box has one, the tunnel (2) otherwise. `tunnel`: the agent keeps running but registers at priority 3, so the tunnel wins within seconds and the direct route stays registered. Set it with `scripts/tools/set-routing-mode.sh <auto\|tunnel\|confirm> [--revert-after <secs>]` (Mesh Console's Diagnostics page, which always schedules a revert to `auto` unless confirmed); a hand edit applies at the next self-check. Derives `MESH_AGENT_ROUTE_PRIORITY`, which is not meant to be edited. `MESH_ROUTING_HOLD` wins over it |
 | `BRAND_NAME` | _(unset)_ | Product name shown as the TOTP issuer and on the password-reset mail. Unset, the box names itself by its domain |
 | `DEX_THEME_SRC` | _(unset)_ | Directory shaped like `dex-theme/` (`templates/*.html`, `themes/<name>/`) that replaces the login UI |
 | `PLATFORM_PROJECTS` | `mesh,auth,maison` | Compose projects that are the platform, not user apps: Mesh Console lists them as platform containers, and `tools/migrate.sh` neither stops nor starts them as apps |
@@ -401,7 +402,7 @@ What happens:
 
 | Key | Default | Purpose |
 |---|---|---|
-| `MESH_ROUTING_HOLD` | _(unset)_ | Set by `migrate.sh`. Keeps `mesh-router-agent` / `mesh-router-tunnel` absent: `migrating:<id>` during a migration, `retired:<ip>` on a box that was moved away |
+| `MESH_ROUTING_HOLD` | _(unset)_ | Set by `migrate.sh`. Keeps `mesh-router-agent` / `mesh-router-tunnel` absent: `migrating:<id>` during a migration, `retired:<ip>` on a box that was moved away. Wins over `MESH_ROUTING_FORCE`: `set-routing-mode.sh` exits `76` while it is set |
 | `MIGRATE_TARGET_SELF_CHECK` | _(unset)_ | A second self-check to run on the target after the mesh one, for a deployment with a template of its own |
 | `MIGRATE_HOLD_LOCKS` | _(unset)_ | Comma-separated lock files `migrate.sh` holds for the whole run, so another self-check on this box skips meanwhile |
 

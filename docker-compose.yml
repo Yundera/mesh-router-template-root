@@ -69,6 +69,9 @@ services:
       # Register <ip-dashed>.${IP_ZONE} routes (mesh-router-nameserver) instead of
       # nip.io ones (agent >= 1.1.3; older agents add them beside nip.io). Empty: nip.io.
       - IP_ZONE=${IP_ZONE:-}
+      # 1 = direct beats the tunnel (2). 3 while MESH_ROUTING_FORCE=tunnel: derived
+      # into .env by routing_force_sync_env (scripts/library/common.sh).
+      - ROUTE_PRIORITY=${MESH_AGENT_ROUTE_PRIORITY:-1}
       # Dual-port support for transparent HTTP/HTTPS routing
       - TARGET_PORT_HTTPS=443
       - TARGET_PORT_HTTP=80
@@ -243,7 +246,7 @@ services:
       pcs: null
 
   mesh-console-app:
-    image: ghcr.io/yundera/mesh-console:1.5.0
+    image: ghcr.io/yundera/mesh-console:1.6.0
     container_name: mesh-console-app
     hostname: mesh-console-app
     restart: unless-stopped

@@ -130,6 +130,61 @@ set_env_value() {
     bash "$ENV_MGR" set "$1" "$2" "$ENV_FILE"
 }
 
+# --- Routing force: MESH_ROUTING_FORCE -------------------------------------------
+#
+# The owner's choice of path behind the gateway (tools/set-routing-mode.sh, the
+# console's Diagnostics page): `auto` (default) or `tunnel`. Applied by DEMOTING the
+# agent, not stopping it. The backend keeps each source's routes under its own key
+# for its route TTL (10 min) and nothing deregisters them, so an agent that is
+# merely absent keeps winning that long. An agent restarted at priority 3 — below
+# the tunnel's 2 — re-registers at once and overwrites its own key: the switch takes
+# seconds, both ways, and the direct route stays registered for the CF worker, which
+# only follows domain routes.
+#
+# The priority is DERIVED into .env (MESH_AGENT_ROUTE_PRIORITY, absent = the agent's
+# own default of 1) rather than exported for one `docker compose up`: every `up` of
+# this project — install.sh, Maison starting the stack, one run by hand — has to see
+# the same value, or it recreates the agent at priority 1.
+ROUTING_FORCE_STATE="$APP_DIR/data/routing/force.json"
+
+routing_force() {
+    case "$(get_env_value MESH_ROUTING_FORCE)" in
+        tunnel) echo tunnel ;;
+        *)      echo auto ;;
+    esac
+}
+
+# Bring MESH_AGENT_ROUTE_PRIORITY in step with MESH_ROUTING_FORCE. Says so when it
+# changed anything; the next `up` recreates the agent.
+routing_force_sync_env() {
+    local current
+    current="$(get_env_value MESH_AGENT_ROUTE_PRIORITY)"
+    if [ "$(routing_force)" = "tunnel" ]; then
+        if [ "$current" != "3" ]; then
+            set_env_value MESH_AGENT_ROUTE_PRIORITY 3
+            echo "Tunnel forced: mesh-router-agent registers at priority 3, below the tunnel"
+        fi
+    elif [ -n "$current" ]; then
+        bash "$ENV_MGR" delete MESH_AGENT_ROUTE_PRIORITY "$ENV_FILE" >/dev/null
+        echo "Routing back to auto: mesh-router-agent registers at its default priority"
+    fi
+    routing_force_export
+}
+
+# Make this shell agree with .env. load_env_file EXPORTS every key, and compose
+# lets the environment win over .env: a value deleted from the file but still
+# exported — by this run, or inherited from the script that started it — would
+# keep the agent demoted. Called by routing_force_sync_env and before every `up`.
+routing_force_export() {
+    local v
+    v="$(get_env_value MESH_AGENT_ROUTE_PRIORITY)"
+    if [ -n "$v" ]; then
+        export MESH_AGENT_ROUTE_PRIORITY="$v"
+    else
+        unset MESH_AGENT_ROUTE_PRIORITY
+    fi
+}
+
 # --- Per-stack state: <stack>/.stack.env ----------------------------------------
 #
 # The mesh .env is the box's configuration: identity, owner knobs, values shared by

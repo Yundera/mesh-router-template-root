@@ -124,6 +124,9 @@ fi
 # Absent rather than stopped, the same as dex in the auth stack: a stopped
 # container is restarted by the next `up` and fails wait_stack_settled.
 ROUTING_HOLD="$(get_env_value MESH_ROUTING_HOLD)"
+# The agent's route priority (MESH_ROUTING_FORCE, see routing_force_sync_env): from
+# .env, never from an environment inherited from whoever ran this script.
+routing_force_export
 if [ -n "$ROUTING_HOLD" ]; then
     echo "Routing held ($ROUTING_HOLD): mesh-router-agent and mesh-router-tunnel stay down"
     UP_ARGS+=(--scale mesh-router-agent=0 --scale mesh-router-tunnel=0)

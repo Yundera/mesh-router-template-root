@@ -158,7 +158,8 @@ There are three parts: the `mesh-console` gate, the `mesh-console-app` backend, 
 one-shot privileged `mesh-console-runner` container in the host's namespaces, started by
 the app for host actions. The only host actions are the template's own
 `scripts/self-check.sh` ("Update now"), `scripts/tools/set-default-app.sh`,
-`scripts/tools/set-update-channel.sh` (the Update page's channel picker) and
+`scripts/tools/set-update-channel.sh` (the Update page's channel picker),
+`scripts/tools/set-routing-mode.sh` (the Diagnostics page's force-tunnel switch) and
 `scripts/tools/migrate.sh`. There is no generic command path.
 
 - **Admins only, checked twice.** The gate requires `OIDC_REQUIRED_GROUPS=admins`. The
@@ -243,6 +244,7 @@ curl -s -D- -o /dev/null -H 'X-Mesh-Force: tunnel' -H 'X-Mesh-Trace: 1' https://
 | Caddyfile edit not picked up | It was replaced with `mv`: a single-file bind mount pins the inode. Copy in place |
 | Box goes dark ~10 min after an update | Agent/tunnel started with an empty `PROVIDER`; see the transition shim |
 | `no routes registered` | Bad `PROVIDER_STR` signature or backend down. `docker logs mesh-router-agent` |
+| Box always goes through the tunnel although it has a public IP | `MESH_ROUTING_FORCE=tunnel` (the agent registers at priority 3). `sudo /DATA/AppData/mesh/scripts/tools/set-routing-mode.sh auto` |
 | Wrong public IP registered on a cloud VM | `PUBLIC_IP_MODE=egress` picked an upstream SNAT address. Use `interface` |
 | Mesh Console answers 403 / refuses everything | Not in `admins`, or `MESH_CONSOLE_ASSERTION_SECRET` unset (re-minted on the next self-check) |
 
