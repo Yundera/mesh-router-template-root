@@ -10,8 +10,11 @@
 #   site_tls.caddy   the root domain's TLS: `import gateway_tls`, or the DNS-01 block
 #   wildcard.caddy   empty, or the *.{$DOMAIN} site with the DNS-01 block
 #   tls_passthrough  SNIs served from Caddy's own certificates instead of the gateway
-#                    CA (read by the image's entrypoint), one per name whose
+#                    CA (read by the image's entrypoint), one per name whose ACME
 #                    certificate is in Caddy's storage
+#   tls_automate     names Caddy must obtain even though the gateway CA certificate
+#                    (cert0, *.<zone>) already covers them: the root <domain>; without
+#                    it automatic HTTPS skips the name (read by the entrypoint too)
 # plus DNS_DOT_FORM=1 in .env once the wildcard is there, which turns on the dot form
 # <app>.<domain> for store apps (routing_domains, ensure-routing-domains.sh).
 #
@@ -44,11 +47,12 @@ case "$RESOLVE" in *'"live":true'*) LIVE=1 ;; esac
 
 CERTS="$MESH_ROOT/data/caddy/data/caddy/certificates"
 
-# have_cert <name>: Caddy's storage holds a certificate for <name> that is valid for at
-# least one more day (any issuer directory).
+# have_cert <name>: Caddy's storage holds an ACME certificate for <name> valid for at
+# least one more day. Only ACME issuer directories: local/ holds Caddy's internal CA,
+# which no browser trusts.
 have_cert() {
     local dir="${1//\*/wildcard_}" crt
-    for crt in "$CERTS"/*/"$dir"/"$dir".crt; do
+    for crt in "$CERTS"/acme*/"$dir"/"$dir".crt; do
         [ -s "$crt" ] || continue
         if command -v openssl >/dev/null 2>&1; then
             openssl x509 -checkend 86400 -noout -in "$crt" >/dev/null 2>&1 && return 0
@@ -75,6 +79,7 @@ $DNS01
 $DNS01
     reverse_proxy {\$DEFAULT_SERVICE_HOST}:{\$DEFAULT_SERVICE_PORT}
 }"
+    AUTOMATE="$DOMAIN"
     PASSTHROUGH=""
     have_cert "$DOMAIN" && PASSTHROUGH+="$DOMAIN"$'\n'
     have_cert "*.$DOMAIN" && PASSTHROUGH+="*.$DOMAIN"$'\n'
@@ -82,6 +87,7 @@ $DNS01
 else
     SITE_TLS="$DNS_SITE_TLS_DEFAULT"
     WILDCARD=""
+    AUTOMATE=""
     PASSTHROUGH=""
     DOT_FORM=""
 fi
@@ -103,15 +109,26 @@ write_state() {
 CHANGED=""
 CHANGED+="$(write_state site_tls.caddy "$SITE_TLS")"
 CHANGED+="$(write_state wildcard.caddy "$WILDCARD")"
-OLD_PASSTHROUGH="$(cat "$DNS_STATE_DIR/tls_passthrough" 2>/dev/null || true)"
-if [ -n "$PASSTHROUGH" ]; then
-    PASSTHROUGH_CHANGED="$(write_state tls_passthrough "${PASSTHROUGH%$'\n'}")"
-elif [ -f "$DNS_STATE_DIR/tls_passthrough" ]; then
-    rm -f "$DNS_STATE_DIR/tls_passthrough"
-    PASSTHROUGH_CHANGED="tls_passthrough"
-else
-    PASSTHROUGH_CHANGED=""
-fi
+# write_list <file> <lines>: like write_state, the file removed when empty. Prints
+# "<file> " on a change, "<file>- " when the change removed names (only a restart
+# drops those: the entrypoint adds missing names by itself).
+write_list() {
+    local file="$DNS_STATE_DIR/$1" old
+    old="$(cat "$file" 2>/dev/null || true)"
+    if [ -n "$2" ]; then
+        [ -n "$(write_state "$1" "${2%$'\n'}")" ] || return 0
+    elif [ -f "$file" ]; then
+        rm -f "$file"
+    else
+        return 0
+    fi
+    if [ -n "$old" ] && [ -n "$(comm -23 <(printf '%s\n' "$old" | sort) <(printf '%s' "$2" | sort))" ]; then
+        echo "$1- "
+    else
+        echo "$1 "
+    fi
+}
+LISTS_CHANGED="$(write_list tls_passthrough "$PASSTHROUGH")$(write_list tls_automate "$AUTOMATE")"
 
 if [ "$(get_env_value DNS_DOT_FORM)" != "$DOT_FORM" ]; then
     if [ -n "$DOT_FORM" ]; then
@@ -126,11 +143,11 @@ echo "Zone $DOMAIN: $([ "$LIVE" = 1 ] && echo "delegated to the mesh nameservers
     "$([ -n "$PASSTHROUGH" ] && printf '| own certificates: %s' "$(printf '%s' "$PASSTHROUGH" | tr '\n' ' ')")"
 
 # The Caddyfile imports are read when Caddy (re)builds its config: restart it for a
-# changed import. The entrypoint adds a new passthrough line by itself within seconds,
-# but only a restart drops a removed one.
-if [ -n "$CHANGED" ] || { [ -n "$PASSTHROUGH_CHANGED" ] && [ -n "$OLD_PASSTHROUGH" ]; }; then
+# changed import. The entrypoint adds new passthrough / automate names by itself within
+# seconds, but only a restart drops a removed one.
+if [ -n "$CHANGED" ] || [[ "$LISTS_CHANGED" == *"- "* ]]; then
     if docker ps --format '{{.Names}}' | grep -qx mesh-router-caddy; then
-        echo "DNS state changed (${CHANGED}${PASSTHROUGH_CHANGED}); restarting mesh-router-caddy"
+        echo "DNS state changed (${CHANGED}${LISTS_CHANGED}); restarting mesh-router-caddy"
         docker restart mesh-router-caddy >/dev/null
     fi
 fi
