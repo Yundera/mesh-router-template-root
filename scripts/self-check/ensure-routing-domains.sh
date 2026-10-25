@@ -41,5 +41,4 @@ sync_key() {
 }
 
 sync_key REDIRECT_HOST_SUFFIXES "$(routing_host_suffixes)"
-sync_key REDIRECT_DOT_SUFFIXES "$(routing_dot_suffixes)"
 sync_key ROUTING_DOMAINS "$DOMAINS"

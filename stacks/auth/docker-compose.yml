@@ -236,10 +236,9 @@ services:
       # routing domains (ensure-routing-domains.sh), the list Maison publishes
       # apps on; the default here only covers a box that has not run it yet.
       REDIRECT_HOST_SUFFIXES: "${REDIRECT_HOST_SUFFIXES:-${DOMAIN}}"
-      # Suffixes apps are also reached on as <app>.<suffix>: the box's domain once its
-      # zone is delegated and Caddy holds the DNS-01 wildcard (DNS_DOT_FORM, written by
-      # ensure-dns-delegation.sh / ensure-routing-domains.sh). Empty = dash form only.
-      REDIRECT_DOT_SUFFIXES: "${REDIRECT_DOT_SUFFIXES:-}"
+      # Apps are also reached as <app>.${DOMAIN} (the dot form, see routing_domains):
+      # their callbacks there are accepted too.
+      REDIRECT_DOT_SUFFIXES: "${DOMAIN}"
       # The one app allowed to register callbacks on the BARE suffixes
       # (${DOMAIN} itself, not just <app>-${DOMAIN}) — i.e. whoever the root
       # domain reverse-proxies to in the Caddyfile.

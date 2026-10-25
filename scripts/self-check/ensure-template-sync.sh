@@ -152,8 +152,6 @@ if [ -d "$MESH_ROOT/Caddyfile" ]; then
     echo "Removing stray Caddyfile directory (created by a bind mount with no source file)"
     rm -rf "$MESH_ROOT/Caddyfile"
 fi
-# The Caddyfile imports data/dns/*.caddy (ensure-dns-delegation.sh): seed them first.
-ensure_dns_state_files
 cp "$TEMPLATE_DIR/Caddyfile" "$MESH_ROOT/Caddyfile"
 
 cp "$TEMPLATE_DIR/docker-compose.yml" "$APP_DIR/docker-compose.yml"
