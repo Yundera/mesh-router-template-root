@@ -42,3 +42,13 @@ sync_key() {
 
 sync_key REDIRECT_HOST_SUFFIXES "$(routing_host_suffixes)"
 sync_key ROUTING_DOMAINS "$DOMAINS"
+
+# The primary name form (library/common.sh primary_form), for mesh-console: whether the
+# box can serve the dot form, and the form in effect. A dot choice the box cannot serve
+# yet (or any more) says so here, and Maison keeps the dash form.
+if dot_form_ready; then sync_key DOT_FORM_READY 1; else sync_key DOT_FORM_READY 0; fi
+FORM="$(primary_form)"
+sync_key PRIMARY_FORM_ACTIVE "$FORM"
+if [ "$(get_env_value MESH_PRIMARY_FORM)" = dot ] && [ "$FORM" != dot ]; then
+    echo "MESH_PRIMARY_FORM=dot, but the box cannot serve the dot form (zone not delegated or no wildcard certificate yet): dash form kept"
+fi

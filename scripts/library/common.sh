@@ -304,15 +304,22 @@ emit_env_for_compose() {
 # nip.io routes.
 routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
+    local dot='dot|{name}.${DOMAIN}|'
+    local form
+    form="$(primary_form)"
     {
+        # The first domain is Maison's primary: tiles open there and apps get it as
+        # APP_URL. The dash form, unless the box serves the dot form and its owner
+        # chose it (primary_form).
+        [ "$form" = dot ] && printf '%s\n' "$dot"
         printf '%s\n' 'gateway|${DOMAIN}|import=gateway_tls'
         # Dot form <app>.${DOMAIN}, always: no labels, the Caddyfile's *.${DOMAIN} site
         # covers it (a local certificate until the zone is delegated to the mesh
-        # nameservers, its DNS-01 wildcard after: mesh-router-caddy decides). Never the
-        # primary: Maison's default domain stays the dash form. The {name} template is
-        # skipped by the resolved lists below; render_routing_override adds the platform
-        # stacks' dot names itself.
-        printf '%s\n' 'dot|{name}.${DOMAIN}|'
+        # nameservers, its DNS-01 wildcard after: mesh-router-caddy decides). The {name}
+        # template is skipped by the resolved lists below (so ROUTING_DOMAINS and the
+        # registrar's suffixes stay dash-form, primary or not); render_routing_override
+        # adds the platform stacks' dot names itself.
+        [ "$form" = dot ] || printf '%s\n' "$dot"
         # The ip zone replaces nip.io; agent 1.1.3 registers nip.io routes only without it
         if [ -n "$(get_env_value IP_ZONE)" ]; then
             printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
@@ -321,6 +328,33 @@ routing_domains() {
         fi
         printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
     }
+}
+
+# True when the box can serve the dot form <app>.${DOMAIN}: its zone is delegated to
+# the mesh nameservers (mesh-router-caddy's zone state, from the backend's dns.live)
+# and Caddy holds the zone's Let's Encrypt wildcard. Before that the dot names resolve
+# to Cloudflare, whose certificate stops at one level below the zone.
+dot_form_ready() {
+    local domain crt
+    domain="$(get_env_value DOMAIN)"
+    [ -n "$domain" ] || return 1
+    [ "$(cat "$MESH_ROOT/data/caddy/data/mesh-zone.state" 2>/dev/null)" = 1 ] || return 1
+    for crt in "$MESH_ROOT"/data/caddy/data/caddy/certificates/acme*/"wildcard_.$domain"/"wildcard_.$domain.crt"; do
+        [ -s "$crt" ] && return 0
+    done
+    return 1
+}
+
+# The form of the box's primary names, dash (<app>-${DOMAIN}) or dot (<app>.${DOMAIN}):
+# MESH_PRIMARY_FORM, the owner's choice (tools/set-primary-form.sh, mesh-console),
+# honoured only while dot_form_ready; dash otherwise. Store apps only: the platform
+# stacks keep their dash names, Dex and Authelia always.
+primary_form() {
+    if [ "$(get_env_value MESH_PRIMARY_FORM)" = dot ] && dot_form_ready; then
+        echo dot
+    else
+        echo dash
+    fi
 }
 
 # Maison's `routing` setting, as JSON. Hosts stay templated with the names .env.app
