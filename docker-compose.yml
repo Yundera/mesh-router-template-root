@@ -249,7 +249,7 @@ services:
       pcs: null
 
   mesh-console-app:
-    image: ghcr.io/yundera/mesh-console:1.9.0
+    image: ghcr.io/yundera/mesh-console:1.9.1
     container_name: mesh-console-app
     hostname: mesh-console-app
     restart: unless-stopped
