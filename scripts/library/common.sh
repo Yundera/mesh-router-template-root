@@ -413,22 +413,28 @@ ensure_dns_state_files() {
 # A stack's routes as Caddy labels — one group per route per domain — in a compose
 # override beside the stack: how the platform's own stacks follow the box's domains,
 # the way Maison does it for store apps. <domains> is a ROUTING_DOMAINS value;
-# <routes-file> lists the stack's routes, `<service>|<name>|<port>` per line, `#` for
-# comments. Written only when it changes. With <domains> empty (the IP not known yet)
-# nothing is written, so the stack keeps the routes it had.
+# <routes-file> lists the stack's routes, `<service>|<name>|<port>[|nodot]` per line,
+# `#` for comments. Written only when it changes. With <domains> empty (the IP not
+# known yet) nothing is written, so the stack keeps the routes it had.
+#
+# While the box serves the dot form (DNS_DOT_FORM=1, routing_dot_suffixes), each route
+# also gets <name>.<domain>, with no proxy labels: the DNS-01 wildcard covers it. A
+# route marked `nodot` keeps the dash form only (Dex and Authelia: their issuer URLs
+# are baked into sessions and tokens).
 #
 # The override's name is the one compose loads by itself, so a hand-run
 # `docker compose up` in the stack's folder, and Maison starting the stack, carry the
 # routes too. A caller passing -f explicitly must pass it (stack_compose below).
 render_routing_override() {
     local domains="$1" spec="$2" out="$3"
-    local svc name port entry suffix l n tmp
+    local svc name port opts entry suffix l n tmp dot
     local -a services=() entries=() kv=()
     local -A labels=() count=()
     [ -n "$domains" ] && [ -f "$spec" ] || return 0
     IFS=',' read -ra entries <<<"$domains"
-    while IFS='|' read -r svc name port; do
-        svc="${svc//[[:space:]]/}" name="${name//[[:space:]]/}" port="${port//[[:space:]]/}"
+    dot="$(routing_dot_suffixes)"
+    while IFS='|' read -r svc name port opts; do
+        svc="${svc//[[:space:]]/}" name="${name//[[:space:]]/}" port="${port//[[:space:]]/}" opts="${opts//[[:space:]]/}"
         case "$svc" in "" | \#*) continue ;; esac
         if [ -z "${count[$svc]+set}" ]; then
             services+=("$svc")
@@ -447,6 +453,12 @@ render_routing_override() {
             labels[$svc]+="      caddy_$n.reverse_proxy: \"{{upstreams $port}}\""$'\n'
             count[$svc]=$((n + 1))
         done
+        if [ -n "$dot" ] && [ "$opts" != "nodot" ]; then
+            n="${count[$svc]}"
+            labels[$svc]+="      caddy_$n: $name.$dot"$'\n'
+            labels[$svc]+="      caddy_$n.reverse_proxy: \"{{upstreams $port}}\""$'\n'
+            count[$svc]=$((n + 1))
+        fi
     done < <(tr -d '\r' <"$spec")
 
     tmp="$(mktemp)"

@@ -1,10 +1,11 @@
-# This stack's routes: <service>|<name>|<port>, one per line. Rendered on every
+# This stack's routes: <service>|<name>|<port>[|nodot], one per line. Rendered on every
 # self-check into docker-compose.override.yml beside the deployed stack, once per
 # routing domain of the box (routing_domains in scripts/library/common.sh), so the
 # compose file itself names no domain.
-# Dex, the box's OIDC broker. Its issuer is auth-${DOMAIN}.
-dex|auth|5556
+# Dex, the box's OIDC broker. Its issuer is auth-${DOMAIN}: dash form only.
+dex|auth|5556|nodot
 # Authelia, the "Local Account" connector behind Dex: a distinct host from Dex's.
-authelia|local-auth|9091
+# Its issuer is dash-form too.
+authelia|local-auth|9091|nodot
 # The identity console, through its gate.
 auth-console|auth-console|80
