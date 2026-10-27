@@ -67,7 +67,7 @@ services:
       - PROVIDER=${PROVIDER_STR:-${PROVIDER}}
       - PUBLIC_IP=${PUBLIC_IP}
       # Register <ip-dashed>.${IP_ZONE} routes (mesh-router-nameserver) instead of
-      # nip.io ones (agent >= 1.1.3; older agents add them beside nip.io). Empty: nip.io.
+      # nip.io ones (agent >= 1.1.3; older agents add them beside nip.io). Empty: nip.io (legacy).
       - IP_ZONE=${IP_ZONE:-}
       # 1 = direct beats the tunnel (2). 3 while MESH_ROUTING_FORCE=tunnel: derived
       # into .env by routing_force_sync_env (scripts/library/common.sh).

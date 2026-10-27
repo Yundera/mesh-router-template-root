@@ -5,7 +5,7 @@
 # this only keeps .env honest.
 #
 # Sets PUBLIC_IP / PUBLIC_IP_DASH — the canonical address: what the agent
-# registers and what the nip.io / sslip.io labels are built from — plus
+# registers and what the ip.<zone> / sslip.io labels are built from — plus
 # PUBLIC_IPV4(_DASH) and PUBLIC_IPV6(_DASH) for consumers that want a family.
 #
 # TWO WAYS TO ANSWER "what is my public IP", for two kinds of box. PUBLIC_IP_MODE

@@ -107,7 +107,7 @@ if [ -z "$(get_env_value DEFAULT_PWD)" ]; then
     FIXED=1
 fi
 
-# Keep PUBLIC_IP_DASH consistent with PUBLIC_IP (used for sslip.io/nip.io routes)
+# Keep PUBLIC_IP_DASH consistent with PUBLIC_IP (used for the ip.<zone>/sslip.io routes)
 CURRENT_IP=$(get_env_value PUBLIC_IP)
 if [ -n "$CURRENT_IP" ]; then
     EXPECTED_DASH=$(echo "$CURRENT_IP" | tr '.:' '-')

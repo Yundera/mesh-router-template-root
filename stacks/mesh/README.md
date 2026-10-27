@@ -25,7 +25,7 @@ it to `${DATA_ROOT}/AppData/mesh/README.md` on every sync.
 
 | Container | Image | Networks | Role |
 |---|---|---|---|
-| `mesh-router-agent` | `mesh-router-agent` | `pcs` | Registers direct routes (IP + nip.io/sslip.io) with the backend. Writes the mesh cert, key and CA |
+| `mesh-router-agent` | `mesh-router-agent` | `pcs` | Registers direct routes (`<ip>.${IP_ZONE}`, nip.io without it) with the backend. Writes the mesh cert, key and CA |
 | `mesh-router-tunnel` | `mesh-router-tunnel` | `pcs` | WireGuard tunnel to the gateway for NAT traversal. Forwards to Caddy on 80/443 |
 | `mesh-router-caddy` | `mesh-router-caddy` | `pcs` | Caddy + caddy-docker-proxy. **The only service publishing host ports** (80, 443) |
 | `smtp` | `mail-gateway` | `pcs` | SMTP on `587` for apps; relays each mail to the backend |

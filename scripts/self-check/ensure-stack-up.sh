@@ -118,7 +118,7 @@ fi
 # identity overwrite each other's routes in the backend - last writer wins and the
 # domain flaps - so while MESH_ROUTING_HOLD is set, mesh-router-agent and
 # mesh-router-tunnel are kept ABSENT; everything else, Caddy included, still runs
-# and answers on the box's own sslip.io / nip.io names. Set by tools/migrate.sh:
+# and answers on the box's own ip.<zone> / sslip.io names. Set by tools/migrate.sh:
 #   migrating:<id>       a target being brought up, or a source mid-cutover
 #   retired:<target-ip>  a migrated-away source; deleting the key is the rollback
 # Absent rather than stopped, the same as dex in the auth stack: a stopped

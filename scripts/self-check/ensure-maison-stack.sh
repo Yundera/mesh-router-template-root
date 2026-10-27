@@ -130,7 +130,7 @@ else
     CLI_FAILED=1
 fi
 
-# Routing: every app on the box's domain, nip.io and sslip.io — what store listings
+# Routing: every app on the box's domain, its IP zone and sslip.io — what store listings
 # that ship their own caddy labels already have, stated for listings that ship
 # `routes` and no labels — plus the mesh-router-nameserver's names when the .env has
 # IP_ZONE. The list is routing_domains (library/common.sh), the same one the
