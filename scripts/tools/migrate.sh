@@ -592,7 +592,7 @@ step_start_apps() {
 
 # The target before any cutover: mesh-console's public health endpoint through
 # Caddy, on the box's own name pinned to the target IP (the mesh CA's certificate,
-# hence -k). Every template version serves it; nip.io is gone when IP_ZONE is set.
+# hence -k). Every template version serves it; nip.io is gone.
 step_verify_target() {
     local host="mesh-console-$DOMAIN" i
     for i in $(seq 1 30); do

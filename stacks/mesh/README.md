@@ -12,9 +12,8 @@ routes, **mesh-router-tunnel** over WireGuard), terminates TLS and routes by hos
 | `mesh-console-${DOMAIN}` | Mesh Console: status, routing, updates, root-domain app (also the **Mesh Router** tile) |
 | any unknown host pointed at the box | Catch-all → the same target as the root domain |
 
-Each host also answers on the `-${PUBLIC_IP_DASH}.${IP_ZONE}` variant (or
-`-${PUBLIC_IP_DASH}.nip.io` on a box without `IP_ZONE`) and the `.sslip.io` one. The
-root domain answers on the bare `${PUBLIC_IP_DASH}.nip.io` / `.sslip.io`.
+Each host also answers on the `-${PUBLIC_IP_DASH}.${IP_ZONE}` variant and the
+`.sslip.io` one. The root domain answers on the bare `${PUBLIC_IP_DASH}.sslip.io`.
 
 Deployed to `${DATA_ROOT}/AppData/mesh` (project name `mesh`). Its compose file is the
 repo-root `docker-compose.yml`. This README's source lives under `stacks/mesh/` because
@@ -25,7 +24,7 @@ it to `${DATA_ROOT}/AppData/mesh/README.md` on every sync.
 
 | Container | Image | Networks | Role |
 |---|---|---|---|
-| `mesh-router-agent` | `mesh-router-agent` | `pcs` | Registers direct routes (`<ip>.${IP_ZONE}`, nip.io without it) with the backend. Writes the mesh cert, key and CA |
+| `mesh-router-agent` | `mesh-router-agent` | `pcs` | Registers direct routes (`<ip>.${IP_ZONE}`) with the backend. Writes the mesh cert, key and CA |
 | `mesh-router-tunnel` | `mesh-router-tunnel` | `pcs` | WireGuard tunnel to the gateway for NAT traversal. Forwards to Caddy on 80/443 |
 | `mesh-router-caddy` | `mesh-router-caddy` | `pcs` | Caddy + caddy-docker-proxy. **The only service publishing host ports** (80, 443) |
 | `smtp` | `mail-gateway` | `pcs` | SMTP on `587` for apps; relays each mail to the backend |
@@ -79,7 +78,7 @@ copied, so a failed migration leaves the box on its current version.
 **Agent and tunnel.** Both authenticate with `PROVIDER_STR` =
 `<backend_url>,<userid>,<signature>`, an Ed25519 signature over the userid. The backend
 verifies it against the stored public key. The agent registers this box's direct routes
-(`<ip-dashed>.${IP_ZONE}`, or `<ip-dashed>.nip.io` without `IP_ZONE`). The tunnel registers a WireGuard route as
+(`<ip-dashed>.${IP_ZONE}`; none without an IP zone). The tunnel registers a WireGuard route as
 the fallback when the box is not directly reachable. Routes expire after ~10 minutes and
 both services re-register on their own loops. The gateway prefers direct and falls back
 to the tunnel.
@@ -112,8 +111,8 @@ labels:
   caddy_2.reverse_proxy: "{{upstreams 8080}}"
 ```
 
-Without `IP_ZONE` (FOSS boxes), `caddy_1` is `app-${PUBLIC_IP_DASH}.nip.io` instead:
-the agent registers nip.io routes there.
+Every box has an `IP_ZONE`: `ensure-ip-zone.sh` takes it from the provider's backend.
+A box without one is misconfigured, and has no `caddy_1` and no direct route.
 
 caddy-docker-proxy rebuilds the whole config on container events (throttled to one
 rebuild per 3s, `CADDY_DOCKER_EVENT_THROTTLE_INTERVAL`) and on a 5-minute poll
@@ -121,7 +120,7 @@ rebuild per 3s, `CADDY_DOCKER_EVENT_THROTTLE_INTERVAL`) and on a 5-minute poll
 A rebuild costs seconds of CPU on a box with many apps, so anything that creates and
 removes containers in a loop is felt by the whole box.
 
-**Root domain.** `${DOMAIN}`, `${PUBLIC_IP_DASH}.nip.io` and `${PUBLIC_IP_DASH}.sslip.io`
+**Root domain.** `${DOMAIN}` and `${PUBLIC_IP_DASH}.sslip.io`
 are defined **only** in the Caddyfile and reverse-proxy to
 `DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT`. The same target serves the custom-domain
 catch-all, which the mesh-router-caddy entrypoint injects through the Admin API because
@@ -240,7 +239,7 @@ curl -s -D- -o /dev/null -H 'X-Mesh-Force: tunnel' -H 'X-Mesh-Trace: 1' https://
 | Caddy won't start: `Caddyfile … not a directory` | `compose up` ran before the file existed and Docker created a directory. `ensure-stack-up.sh` removes it and restores the file |
 | Root domain 502, every `<app>-${DOMAIN}` fine | `DEFAULT_SERVICE_HOST` is not on `pcs` (or a typo). `ensure-root-domain.sh` reports it |
 | Apex serves the wrong app, or both | A container claims a root address with a `caddy_*` label |
-| `<app>-${DOMAIN}` works via sslip.io but not via the domain | `caddy_1` (`${IP_ZONE}`, or nip.io without it) label missing. The CF worker routes on it |
+| `<app>-${DOMAIN}` works via sslip.io but not via the domain | `caddy_1` (`${IP_ZONE}`) label missing, or `IP_ZONE` unset (`ensure-ip-zone.sh` fails). The CF worker routes on it |
 | Caddyfile edit not picked up | It was replaced with `mv`: a single-file bind mount pins the inode. Copy in place |
 | Box goes dark ~10 min after an update | Agent/tunnel started with an empty `PROVIDER`; see the transition shim |
 | `no routes registered` | Bad `PROVIDER_STR` signature or backend down. `docker logs mesh-router-agent` |

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Check-only: verify the root domain actually serves something.
 #
-# ${DOMAIN}, ${PUBLIC_IP_DASH}.nip.io, ${PUBLIC_IP_DASH}.sslip.io and the catch-all
-# all reverse_proxy to DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT — the Caddyfile is
-# the only definition of those four, and no container may claim them via a label. So
+# ${DOMAIN}, ${PUBLIC_IP_DASH}.sslip.io and the catch-all all reverse_proxy to
+# DEFAULT_SERVICE_HOST:DEFAULT_SERVICE_PORT — the Caddyfile is the only definition of
+# those three, and no container may claim them via a label. So
 # one stale value in .env takes down the box's entire front door while every
 # per-service hostname (maison-${DOMAIN}, auth-${DOMAIN}, every app) keeps working,
 # because those come from container labels instead.

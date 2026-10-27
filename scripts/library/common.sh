@@ -300,8 +300,8 @@ emit_env_for_compose() {
 # proxy's, added to every route on the domain: gateway_tls is the box's own CA, which
 # the gateway and the CF worker trust; sslip.io has none and falls through to Let's
 # Encrypt. The CF worker reaches the box on <app>-<ip>.<IP_ZONE>, falling back to
-# sslip.io; it uses nip.io only for a box without IP_ZONE, whose agent registers
-# nip.io routes.
+# sslip.io. A box without IP_ZONE is misconfigured (ensure-ip-zone.sh) and gets no
+# IP-zone domain: there is no nip.io fallback.
 routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
     local dot='dot|{name}.${DOMAIN}|'
@@ -320,11 +320,8 @@ routing_domains() {
         # registrar's suffixes stay dash-form, primary or not); render_routing_override
         # adds the platform stacks' dot names itself.
         [ "$form" = dot ] || printf '%s\n' "$dot"
-        # The ip zone replaces nip.io; agent 1.1.3 registers nip.io routes only without it
         if [ -n "$(get_env_value IP_ZONE)" ]; then
             printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
-        else
-            printf '%s\n' 'nip|${PUBLIC_IP_DASH}.nip.io|import=gateway_tls'
         fi
         printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
     }

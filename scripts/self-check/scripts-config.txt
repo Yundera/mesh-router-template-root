@@ -23,9 +23,8 @@ ensure-template-sync.sh
 
 # Stack
 ensure-public-ip.sh
-# IP_ZONE from the provider's ip zone once it answers for this box. After
-# ensure-public-ip.sh (probes PUBLIC_IPV4), before ensure-routing-domains.sh (the
-# zone is one of the routing domains).
+# IP_ZONE from the provider's backend; fails when there is none. Before
+# ensure-routing-domains.sh (the zone is one of the routing domains).
 ensure-ip-zone.sh
 # REDIRECT_HOST_SUFFIXES from the routing domains. After ensure-public-ip.sh (the
 # suffixes embed the IP), before any stack comes up (the auth-registrar reads it).
