@@ -34,8 +34,7 @@ it to `${DATA_ROOT}/AppData/mesh/README.md` on every sync.
 All images are pinned to exact versions in `docker-compose.yml`. A tag that is not yet
 published costs every self-check the pull backoff, so publish before moving a pin.
 
-**The transition shim.** `PROVIDER=${PROVIDER_STR:-${PROVIDER}}` (and the same for
-`DEFAULT_PWD`) reads the new key with the old one as a fallback. On an update from a
+**The transition shim.** `PROVIDER=${PROVIDER_STR:-${PROVIDER}}` reads the new key with the old one as a fallback. On an update from a
 pre-rename template, the new compose file is brought up in the same cycle, before the
 rename migration has had a chance to run. Without the fallback, agent and tunnel start
 with an empty provider string and the box goes dark once the ~600 s route TTL runs out.
@@ -197,8 +196,8 @@ ${DATA_ROOT}/AppData/mesh/
 docker volume mesh_smtp-data      mail delivery stats
 ```
 
-`.env` is the only state that matters. It holds `PROVIDER_STR`, `DEFAULT_PWD` (handed
-to every app, never rotate it) and `MESH_CONSOLE_ASSERTION_SECRET`. The auth stack's
+`.env` is the only state that matters. It holds `PROVIDER_STR` and
+`MESH_CONSOLE_ASSERTION_SECRET`. The auth stack's
 secrets are in `/DATA/AppData/auth/.stack.env`. Hand-edits to the live
 `docker-compose.yml` or `Caddyfile` are lost on the next sync. Set
 `MESH_AUTO_UPDATE=false` to keep local changes.

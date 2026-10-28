@@ -202,9 +202,9 @@ env_get() {
 ENV_FILE="$APP_DIR/.env"
 env_set() {
   # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
-  # is what keeps DEFAULT_PWD (and anything ensure-env-valid backfilled)
-  # intact when the installer is re-run to update — regenerating the platform
-  # secret would invalidate every app's DB password and admin token.
+  # is what keeps the auth secrets (and anything ensure-env-valid backfilled)
+  # intact when the installer is re-run to update — regenerating them would
+  # log everyone out and break the Dex <-> Authelia client.
   local key="$1" value="$2" tmp
   tmp=$(mktemp "$APP_DIR/.env.XXXXXX")
   if [[ -f "$ENV_FILE" ]]; then
@@ -438,9 +438,8 @@ fi
 #
 # Show what was found and get one keypress before touching anything. Deliberately
 # NOT a two-way "reuse this / start fresh" choice: starting fresh would mean
-# discarding DEFAULT_PWD (and, on a box that predates auth/.stack.env,
-# AUTHELIA_DEX_SECRET and DEX_SESSION_KEY) — invalidating
-# every installed app's database password and admin token — which is not
+# discarding, on a box that predates auth/.stack.env, AUTHELIA_DEX_SECRET and
+# DEX_SESSION_KEY — breaking every login — which is not
 # something anyone should reach by picking the second menu item. Changing the
 # identity is `--domain` / `--provider`; starting over is uninstall.sh first.
 # ---------------------------------------------------------------------------
@@ -616,23 +615,6 @@ if [[ "$WINDOWS_MODE" == true ]]; then
   PUBLIC_IP_DASH=$(echo "$PUBLIC_IP" | tr '.:' '-')
   EMAIL="${EMAIL_ARG:-admin@${DOMAIN}}"
 
-  # Platform secret consumed by app-store apps. Preserve across reruns —
-  # regenerating would invalidate every app's DB password and admin token.
-  # DEFAULT_PASSWORD is the pre-rename name. This path is the ONLY thing that
-  # migrates it on Windows: there is no self-check and no template sync here, so
-  # scripts/migrations/ never runs. Missing the fallback would regenerate the
-  # secret on the first re-run after the rename and break every installed app.
-  DEFAULT_PWD=""
-  if [[ -f "$APP_DIR/.env" ]]; then
-    DEFAULT_PWD=$(grep -E '^DEFAULT_PWD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
-    if [[ -z "$DEFAULT_PWD" ]]; then
-      DEFAULT_PWD=$(grep -E '^DEFAULT_PASSWORD=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)
-    fi
-  fi
-  if [[ -z "$DEFAULT_PWD" ]]; then
-    DEFAULT_PWD=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
-  fi
-
   # Upsert rather than rewrite: same reason as the Linux path below. A Windows
   # box is re-run to update just like a Linux one, and a wholesale rewrite would
   # drop every key this installer does not name — anything added by hand
@@ -642,7 +624,6 @@ if [[ "$WINDOWS_MODE" == true ]]; then
   env_set PUBLIC_IP "$PUBLIC_IP"
   env_set PUBLIC_IP_DASH "$PUBLIC_IP_DASH"
   env_set DATA_ROOT "$DATA_ROOT"
-  env_set DEFAULT_PWD "$DEFAULT_PWD"
   env_set EMAIL "$EMAIL"
   env_set DEFAULT_SERVICE_HOST "maison"
   env_set DEFAULT_SERVICE_PORT "80"
@@ -691,8 +672,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Linux: write a MINIMAL .env (only what self-check can't derive) and hand off.
-# ensure-env-valid backfills DEFAULT_PWD, service host/port, PUID/PGID, and
-# EMAIL; ensure-public-ip detects PUBLIC_IP; ensure-template-sync owns compose.
+# ensure-env-valid backfills service host/port, PUID/PGID, and EMAIL; ensure-public-ip detects PUBLIC_IP; ensure-template-sync owns compose.
 # ---------------------------------------------------------------------------
 # Adopt a pre-move .env from the CasaOS-era path BEFORE writing anything.
 #
@@ -707,7 +687,7 @@ fi
 #
 # Moving the old file into place first is what makes the "preserving existing keys
 # on re-run" promise true ACROSS the layout change: the box's real state
-# (DEFAULT_PWD, and on an older box the auth secrets, ...) is the base, and this
+# (PROVIDER_STR, and on an older box the auth secrets, ...) is the base, and this
 # run's values are overlaid on it. Mirrors the APP_DIR fallback in
 # scripts/library/common.sh — keep the two in sync. Moving the DIRECTORY (and
 # leaving the symlink behind) still belongs to the migration.
@@ -776,10 +756,8 @@ bash "$SCRIPTS_DIR/self-check.sh" --display || SELF_CHECK_RC=$?
 # creates users_database.yml in the first place, seeding the owner DISABLED. The
 # claim names that account, sets its password and enables it.
 #
-# This is deliberately NOT the same secret as DEFAULT_PWD. That one is an
-# app-seed secret injected into every app this box installs
-# (default_pwd / PCS_DEFAULT_PASSWORD / APP_DEFAULT_PASSWORD), so using it as the
-# human login would put the owner's own credential in every app's environment.
+# The password is the owner's own and never reaches an app: the box no longer
+# has an app-wide password at all (the retired DEFAULT_PWD / APP_DEFAULT_PASSWORD).
 #
 # Skipped silently when the box is already claimed, which is what makes a re-run
 # to update ask nothing.

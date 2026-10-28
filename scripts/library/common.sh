@@ -75,9 +75,8 @@ load_env_file "$ENV_FILE"
 # is exactly the kind of message that sends someone debugging the wrong thing
 # during a fleet rollout.
 : "${PROVIDER_STR:=${PROVIDER:-}}"
-: "${DEFAULT_PWD:=${DEFAULT_PASSWORD:-}}"
 : "${SELF_CHECK_CRON:=${MESH_SELF_CHECK_CRON:-}}"
-export PROVIDER_STR DEFAULT_PWD SELF_CHECK_CRON
+export PROVIDER_STR SELF_CHECK_CRON
 
 MESH_ROOT="${DATA_ROOT:-/DATA}/AppData/mesh"
 SCRIPTS_DIR="$MESH_ROOT/scripts"

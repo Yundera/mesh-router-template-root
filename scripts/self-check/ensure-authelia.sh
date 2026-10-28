@@ -13,8 +13,8 @@
 #     it), pbkdf2 hash
 #     cached for Authelia's client config,
 #   - render configuration.yml every run (tracks DOMAIN),
-#   - seed the admin user in users_database.yml from DEFAULT_PWD, refreshing only
-#     the email on later runs (Authelia owns the password once the user changes it),
+#   - seed the admin user in users_database.yml (disabled, placeholder hash, until
+#     claimed), refreshing only the email on later runs (Authelia owns the password once the user changes it),
 #   - restart authelia ONLY when something it reads at startup changed (the
 #     rendered config, a freshly generated secret or key), and WAIT for it to
 #     serve again — mesh-router-caddy's route included — before returning
@@ -501,10 +501,9 @@ else
     #        could not validate the schema: users: non zero value required
     #      Hence a PLACEHOLDER key, which `claim` renames to the user's choice.
     #
-    # DEFAULT_PWD is deliberately NOT used here. It is an app-seed secret — it
-    # reaches every installed app as APP_DEFAULT_PASSWORD through the .env.app
-    # ensure-maison-stack.sh writes for Maison — so making it the login password
-    # put the owner's own credential in every app's environment.
+    # Never a shared value: the retired DEFAULT_PWD reached every installed app as
+    # APP_DEFAULT_PASSWORD, so making it the login put the owner's own credential
+    # in every app's environment.
     if ! authelia_hash argon2 --random --random.length 64; then
         log_error "Failed to generate the unclaimed-account placeholder hash via $AUTHELIA_IMAGE after $HASH_MAX_ATTEMPTS attempts"
         exit 1

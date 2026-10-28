@@ -3,8 +3,8 @@ name: mesh
 # =============================================================================
 # TRANSITION SHIM — remove one release after the key rename has rolled out.
 #
-# ${PROVIDER_STR:-${PROVIDER}} and ${DEFAULT_PWD:-${DEFAULT_PASSWORD}} below read
-# the new key name and fall back to the old one.
+# ${PROVIDER_STR:-${PROVIDER}} below reads the new key name and falls back to the
+# old one.
 #
 # Why it is needed: on a box updating FROM a pre-rename template, the running
 # self-check copies this compose file into place and brings the stack up in the

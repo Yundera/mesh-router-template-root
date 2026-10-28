@@ -21,8 +21,7 @@ FIXED=0
 # migration is the normal path; this is the self-healing one, for a box whose
 # marker exists but whose .env was later restored from a backup, or where the
 # sync is pinned off (MESH_AUTO_UPDATE=false) so migrations never run. Values
-# are moved, never regenerated — DEFAULT_PWD is the platform secret every
-# installed app derived its credentials from.
+# are moved, never regenerated.
 heal_renamed_key() {
     local old="$1" new="$2" old_val
     [ -n "$(get_env_value "$new")" ] && return 0
@@ -39,7 +38,6 @@ heal_renamed_key() {
 }
 
 heal_renamed_key PROVIDER             PROVIDER_STR
-heal_renamed_key DEFAULT_PASSWORD     DEFAULT_PWD
 heal_renamed_key MESH_SELF_CHECK_CRON SELF_CHECK_CRON
 
 if [ -z "${PROVIDER_STR:-}" ]; then
@@ -95,15 +93,6 @@ if [ -n "$(get_env_value MESH_UPDATE_CHANNEL)" ]; then
     fi
     bash "$ENV_MGR" delete MESH_UPDATE_CHANNEL "$ENV_FILE"
     echo "Dropped deprecated MESH_UPDATE_CHANNEL"
-    FIXED=1
-fi
-
-# Platform secret consumed by app-store apps. Generate once, never rotate —
-# regenerating would invalidate every app's DB password and admin token.
-if [ -z "$(get_env_value DEFAULT_PWD)" ]; then
-    GENERATED=$(LC_ALL=C head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24)
-    set_env_value "DEFAULT_PWD" "$GENERATED"
-    echo "Generated missing DEFAULT_PWD"
     FIXED=1
 fi
 

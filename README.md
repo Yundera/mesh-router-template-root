@@ -14,7 +14,6 @@ This repository provides a template `docker-compose.yml` file used by mesh-dashb
 | `%PUBLIC_IP%` | Instance public IP address | `203.0.113.5` |
 | `%REF_DOMAIN%` | User's full domain | `username.nsl.sh` |
 | `%DATA_ROOT%` | Data storage path | `/data` |
-| `%DEFAULT_PASSWORD%` | Platform secret consumed by app-store apps via `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD` | `generated-password` |
 | `%EMAIL%` | User's email address | `user@example.com` |
 
 ## Stacks
@@ -65,9 +64,9 @@ per-user account on, so it is free to choose now and expensive to change later �
 `claim` refuses to run twice without `--force`, and there is no rename verb. The same
 script also does `list`, `add`, `delete`, `set-password` and `set-email`.
 
-**This is NOT `DEFAULT_PWD`.** That is an app-seed secret handed to every app this
-box installs (`$APP_DEFAULT_PASSWORD` and friends); using it as the human login would
-put your own password in every app's environment.
+This password is yours alone. The box has no app-wide password any more: the old
+`DEFAULT_PWD` / `$APP_DEFAULT_PASSWORD` is retired, and each app generates its own
+secrets (see "Retired: `DEFAULT_PWD`" below).
 
 ## Usage
 
@@ -79,7 +78,6 @@ const userConfig = template
   .replace('%PUBLIC_IP%', userPublicIp)
   .replace('%REF_DOMAIN%', `${username}.${serverDomain}`)
   .replace('%DATA_ROOT%', '/data')
-  .replace('%DEFAULT_PASSWORD%', generatedPassword)
   .replace('%EMAIL%', userEmail);
 ```
 
@@ -198,8 +196,7 @@ The update is not a special mode — it is the same script following its normal 
 ladder, `explicit flag > value already in .env > prompt > default`. Consequences worth
 knowing:
 
-- **`.env` is preserved key by key.** `DEFAULT_PWD` survives; regenerating it would
-  invalidate every installed app's database password and admin token. The auth stack's
+- **`.env` is preserved key by key.** Nothing in it is regenerated. The auth stack's
   own secrets (`AUTHELIA_DEX_SECRET`, `DEX_SESSION_KEY`, `AUTH_CONSOLE_ASSERTION_SECRET`)
   are in `/DATA/AppData/auth/.stack.env`, which the installer does not touch. There is deliberately no "reinstall from scratch"
   option in the prompt — to genuinely start over, run `uninstall.sh` first.
@@ -294,7 +291,6 @@ Markers live in `${DATA_ROOT}/AppData/mesh/migration-markers/`. See
 |-----|---------|---------|
 | `PROVIDER_STR` | _(required)_ | Provider connection string, `<backend_url>,<userid>,<signature>`. Written by `install.sh --provider` |
 | `DOMAIN` | _(required)_ | This box's domain, e.g. `alice.nsl.sh` |
-| `DEFAULT_PWD` | _(generated)_ | Platform secret handed to installed apps as `$APP_DEFAULT_PASSWORD` / `$PCS_DEFAULT_PASSWORD`. Generated once and never rotated — regenerating invalidates every app's DB password and admin token. **Not the login password** — see "Claiming the login" |
 | `LOCAL_ADMIN_USER` | _(set at claim)_ | The owner's chosen username. Written by `authelia-user-manager.sh claim`; `ensure-authelia.sh` reads it to keep the right account's email in step with `EMAIL` |
 | `MESH_CONSOLE_ASSERTION_SECRET` | _(generated)_ | Shared by the mesh-console gate (signs the identity assertion) and app (verifies it). Deleting it re-mints it on the next self-check |
 | `MESH_AUTO_UPDATE` | `true` (`false` for `--local` installs) | Set `false` to opt out of template sync — the stack stays pinned, the rest of the self-check still runs. Update such a box by re-running `install.sh` with no arguments (see [Manual update](#manual-update-installsh-with-no-arguments)) |
@@ -331,8 +327,18 @@ predates this has the three in the mesh `.env`: the scripts that own them move t
 (`stack_env_adopt`, `scripts/library/common.sh`), saving the `.env` as it was to
 `.env.<YYYY-MM-DD>.old` first.
 
-`PROVIDER_STR`, `DEFAULT_PWD` and `SELF_CHECK_CRON` were previously named `PROVIDER`,
-`DEFAULT_PASSWORD` and `MESH_SELF_CHECK_CRON`. Existing boxes are renamed in place by
+### Retired: `DEFAULT_PWD`
+
+The box used to generate one shared password, `DEFAULT_PWD`, and hand it to every app as
+`APP_DEFAULT_PASSWORD` / `DefaultPassword` through Maison's `.env.app`. Nothing generates or
+forwards it any more (Maison 1.1.78+ on the fleet, and the official store names it only as a
+seed, `${APP_DEFAULT_PASSWORD}|alnum:32`). An app installed with it keeps the copy in its own
+`.env`, so updates still find the value its data was set up with. A `DEFAULT_PWD=` line left in
+an existing mesh `.env` is inert. Stores other than the official one may still read it directly;
+those apps get an empty value on a fresh install.
+
+`PROVIDER_STR` and `SELF_CHECK_CRON` were previously named `PROVIDER` and
+`MESH_SELF_CHECK_CRON`. Existing boxes are renamed in place by
 `scripts/migrations/2026-08-02-01-rename-env-keys.sh` (values are moved, never regenerated);
 `ensure-env-valid.sh` carries the same fix as a fallback for boxes the migration never reaches
 (`MESH_AUTO_UPDATE=false`). The names match `Yundera/template-root`, which is where they came

@@ -79,13 +79,13 @@ APP_PUBLIC_IPV6=$(env_get PUBLIC_IPV6)
 APP_PUBLIC_IPV6_DASH=$(env_get PUBLIC_IPV6_DASH)
 APP_IP_ZONE=$(env_get IP_ZONE)
 APP_EMAIL=$(env_get EMAIL)
-APP_DEFAULT_PASSWORD=$(env_get DEFAULT_PWD)
 DefaultUserName=admin
-DefaultPassword=$(env_get DEFAULT_PWD)
 EOF
 
-# Carries DEFAULT_PWD, exactly as the mesh .env does. Maison runs as root and is
-# the only reader.
+# No shared password any more: APP_DEFAULT_PASSWORD / DefaultPassword are retired.
+# An app installed with them keeps them in its own .env, and the official store
+# names them only as seeds (${APP_DEFAULT_PASSWORD}|alnum:32), so a fresh install
+# generates its own. Maison runs as root and is the only reader.
 chmod 600 "$APPENV_TMP"
 mv -f "$APPENV_TMP" "$MAISON_DIR/.env.app"
 echo "Wrote $MAISON_DIR/.env.app"

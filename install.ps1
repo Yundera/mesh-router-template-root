@@ -44,8 +44,7 @@ function Convert-ToWinPath([string]$p) {
 
 # Read an existing .env into an ordered map. Re-runs MERGE into this map rather
 # than rewriting the file from a template, so keys this installer does not manage
-# survive — and so does DEFAULT_PWD, the app-seed secret every installed app's
-# database password and admin token is derived from.
+# survive — the auth secrets and anything added by hand included.
 function Read-EnvFile([string]$path) {
     $map = [ordered]@{}
     if (Test-Path $path -PathType Leaf) {
@@ -130,8 +129,8 @@ $RepoBase = "https://cdn.jsdelivr.net/gh/yundera/mesh-router-template-root@$Chan
 $InstallDir = "$DataRoot/AppData/mesh"
 
 # Confirm an update that was asked for with no parameters. Deliberately not a
-# "reuse this / start fresh" choice: starting fresh would discard DEFAULT_PWD and
-# break every installed app's credentials. Change identity with -Provider/-Domain.
+# "reuse this / start fresh" choice: starting fresh would discard the box's
+# secrets and break every login. Change identity with -Provider/-Domain.
 if ($ConfigFound -and -not $ProviderArg -and -not $DomainArg) {
     $sig = ""
     $parts = $Provider -split ','
@@ -197,26 +196,12 @@ $PublicIpDash = $PublicIp -replace '[.:]', '-'
 # admin@<domain> address when the installer is run standalone without -Email.
 if (-not $Email) { $Email = "admin@$Domain" }
 
-# Seed a platform secret consumed by app-store apps via $APP_DEFAULT_PASSWORD /
-# $PCS_DEFAULT_PASSWORD. Preserve across reruns.
-#
 # -DataRoot may have moved the install since the probe at the top, so re-read
-# from the final location before deciding whether a secret already exists.
+# from the final location before merging into it.
 $finalEnvPath = (Convert-ToWinPath $InstallDir) + '\.env'
 if ($finalEnvPath -ne $envPath) {
     $ExistingEnv = Read-EnvFile $finalEnvPath
     $envPath = $finalEnvPath
-}
-
-# DEFAULT_PASSWORD is the pre-rename name. Windows installs run no self-check and
-# no template sync, so scripts/migrations/ never reaches them — this fallback is
-# the only thing that carries the secret across the rename. Without it the first
-# re-run mints a new one and every installed app's DB password and admin token
-# stop matching.
-$DefaultPassword = Get-Existing 'DEFAULT_PWD'
-if (-not $DefaultPassword) { $DefaultPassword = Get-Existing 'DEFAULT_PASSWORD' }
-if (-not $DefaultPassword) {
-    $DefaultPassword = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
 }
 
 # 4. Create directories (via WSL since paths are Linux-style)
@@ -275,7 +260,6 @@ $envMap['DOMAIN']               = $Domain
 $envMap['PUBLIC_IP']            = $PublicIp
 $envMap['PUBLIC_IP_DASH']       = $PublicIpDash
 $envMap['DATA_ROOT']            = $DataRoot
-$envMap['DEFAULT_PWD']          = $DefaultPassword
 $envMap['EMAIL']                = $Email
 $envMap['DEFAULT_SERVICE_HOST'] = 'maison'
 $envMap['DEFAULT_SERVICE_PORT'] = '80'

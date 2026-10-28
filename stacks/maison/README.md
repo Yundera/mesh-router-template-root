@@ -48,7 +48,7 @@ Pin rules, explained in full in `docker-compose.yml`:
 ```
 DOCKER_GID     stat -c %g /var/run/docker.sock        → passed to deploy-stack.sh
 TZ             /etc/timezone or /etc/localtime        → passed to deploy-stack.sh
-.env.app       mesh .env (DOMAIN, PUBLIC_IP*, EMAIL, DEFAULT_PWD)
+.env.app       mesh .env (DOMAIN, PUBLIC_IP*, EMAIL, IP_ZONE)
                                                       → maison/.env.app   (tmp + mv, 0600)
 tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   stacks/maison/docker-compose.yml → maison/docker-compose.yml
@@ -77,8 +77,8 @@ tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   detected and skipped: it still reads `SMTP_*`, `FEEDBACK_*` and `APPSTORE_URL` from
   the compose environment, which keeps passing them for that reason.
 - **`.env.app`** is what every installed app *receives*: `APP_NET=pcs`,
-  `APP_DOMAIN`/`domain`, the `APP_PUBLIC_IP*` keys, `APP_EMAIL`,
-  `APP_DEFAULT_PASSWORD`/`DefaultPassword`. Maison forwards these into each app's own
+  `APP_DOMAIN`/`domain`, the `APP_PUBLIC_IP*` keys, `APP_IP_ZONE`, `APP_EMAIL`. No
+  shared password: `APP_DEFAULT_PASSWORD`/`DefaultPassword` are retired. Maison forwards these into each app's own
   `.env` at install time and again on every start, so apps follow the box when its
   domain or IP changes. The file is written **before** the first deploy. Without it,
   Maison falls back to its standalone default (`APP_NET=mesh`, no domain), and every
@@ -133,7 +133,7 @@ AppShield 3.0 removed `AUTH_HASH`.
 ```
 ${DATA_ROOT}/AppData/maison/
 ├── docker-compose.yml  .env  .icon.png  README.md   regenerated every self-check — don't edit
-├── .env.app                           regenerated every self-check (0600, holds DEFAULT_PWD)
+├── .env.app                           regenerated every self-check (0600)
 ├── settings.json, store cache, …      Maison's own STATE (STATE_DIR defaults to this folder)
 └── gate-data/                         the gate's sessions.json and OAuth state
 ```
