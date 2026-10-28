@@ -12,6 +12,8 @@
 #     plaintext into the auth stack's .stack.env (the connector is rendered from
 #     it), pbkdf2 hash
 #     cached for Authelia's client config,
+#   - mint Authelia's TLS certificate for local-auth-${DOMAIN} (tls/), and mint it
+#     again when DOMAIN changes or it nears expiry,
 #   - render configuration.yml every run (tracks DOMAIN),
 #   - seed the admin user in users_database.yml (disabled, placeholder hash, until
 #     claimed), refreshing only the email on later runs (Authelia owns the password once the user changes it),
@@ -35,6 +37,8 @@
 #   secrets/{session,storage,reset,oidc-hmac}  generate-once (chmod 600)
 #   secrets/dex-client-hash                    pbkdf2 hash of AUTHELIA_DEX_SECRET
 #   oidc/private.pem                           RSA-4096 JWKS signing key
+#   tls/{cert,key}.pem                         Authelia's own TLS certificate (see
+#                                              ensure_local_auth_cert)
 #   configuration.yml                          rendered each run
 #   users_database.yml                         file user store (Authelia owns it after seed)
 #   db.sqlite                                  session/regulation store
@@ -66,6 +70,9 @@ stack_env_adopt "$ENV_FILE" "$AUTH_STACK_ENV" AUTHELIA_DEX_SECRET
 AUTH_ROOT="$AUTHELIA_HOME"
 SECRETS_DIR="$AUTH_ROOT/secrets"
 OIDC_DIR="$AUTH_ROOT/oidc"
+TLS_DIR="$AUTH_ROOT/tls"
+LOCAL_AUTH_CERT="$TLS_DIR/cert.pem"
+LOCAL_AUTH_KEY="$TLS_DIR/key.pem"
 
 # Resolve the config template from THIS SCRIPT'S OWN TREE first, falling back to
 # the synced template/ directory.
@@ -151,6 +158,49 @@ authelia_hash() {
     return 1
 }
 
+# --- Authelia's TLS certificate ----------------------------------------------
+# Authelia serves HTTPS itself (auth/configuration.yml.tmpl): Dex reaches
+# local-auth-${DOMAIN} directly on authelia-internal and Authelia answers OIDC only
+# over HTTPS. The certificate is this stack's own — self-signed, one name, and
+# trusted by exactly one client: the Local Account connector, which carries it
+# inline (write_local_account_connector). Nothing is shared between the two
+# containers but that config, written by this script, in the direction it already
+# went. The mesh CA is not involved.
+#
+# Minted again when the name no longer matches DOMAIN or fewer than 30 days are
+# left; the caller restarts Authelia and the connector is rewritten in the same
+# run, so the two cannot drift apart. Returns 0 when it minted one.
+LOCAL_AUTH_CERT_DAYS=3650
+ensure_local_auth_cert() {
+    local name="local-auth-$DOMAIN" tmpdir
+    if [ -s "$LOCAL_AUTH_CERT" ] && [ -s "$LOCAL_AUTH_KEY" ] \
+        && openssl x509 -in "$LOCAL_AUTH_CERT" -noout -checkend $((30 * 86400)) >/dev/null 2>&1 \
+        && openssl x509 -in "$LOCAL_AUTH_CERT" -noout -ext subjectAltName 2>/dev/null \
+            | tr -d ' ' | grep -qxF "DNS:$name"; then
+        return 1
+    fi
+    mkdir -p "$TLS_DIR"
+    chmod 700 "$TLS_DIR"
+    tmpdir="$(mktemp -d "$TLS_DIR/.mint.XXXXXX")"
+    if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+            -days "$LOCAL_AUTH_CERT_DAYS" -subj "/CN=$name" \
+            -addext "subjectAltName=DNS:$name" \
+            -addext "basicConstraints=critical,CA:FALSE" \
+            -addext "extendedKeyUsage=serverAuth" \
+            -keyout "$tmpdir/key.pem" -out "$tmpdir/cert.pem" >/dev/null 2>&1; then
+        rm -rf "$tmpdir"
+        log_error "Could not mint the TLS certificate for $name"
+        exit 1
+    fi
+    chmod 600 "$tmpdir/key.pem"
+    chmod 644 "$tmpdir/cert.pem"
+    mv "$tmpdir/key.pem" "$LOCAL_AUTH_KEY"
+    mv "$tmpdir/cert.pem" "$LOCAL_AUTH_CERT"
+    rmdir "$tmpdir"
+    echo "Minted Authelia's TLS certificate for $name"
+    return 0
+}
+
 # --- the Local Account connector ---------------------------------------------
 # Authelia's Dex connector, as a drop-in: ${DATA_ROOT}/AppData/auth/dex/connectors.d/authelia.yaml.
 # ensure-dex.sh knows no connector — it renders the base config, appends whatever
@@ -175,7 +225,7 @@ authelia_hash() {
 # The file carries the connector's client secret (AUTHELIA_DEX_SECRET), so it is
 # 0600; ensure-dex.sh hands the whole Dex tree to uid 1001.
 write_local_account_connector() {
-    local CONNECTORS_D DROPIN TMP AUTHELIA_DEX_SECRET DOMAIN PROBE_RC
+    local CONNECTORS_D DROPIN TMP AUTHELIA_DEX_SECRET DOMAIN PROBE_RC ROOT_CA
     CONNECTORS_D="$DEX_HOME/connectors.d"
     DROPIN="$CONNECTORS_D/authelia.yaml"
     mkdir -p "$CONNECTORS_D"
@@ -205,21 +255,39 @@ write_local_account_connector() {
         log_warn "AUTHELIA_DEX_SECRET not set yet; Local Account connector written without a secret until a full ensure-authelia.sh run mints it"
     fi
 
+    # Authelia's certificate, inline: the one root this connector trusts besides
+    # the image's public bundle (Dex appends rootCAs to the system pool, per
+    # connector). base64 of the PEM, which Dex accepts as-is. Missing only before
+    # the first full run (a --connector-only call on a box that never had one):
+    # then the back-channel fails until that run, which mints it and rewrites this.
+    ROOT_CA=""
+    if [ -s "$LOCAL_AUTH_CERT" ]; then
+        ROOT_CA="$(base64 <"$LOCAL_AUTH_CERT" | tr -d '\n')"
+    else
+        log_warn "No TLS certificate for Authelia yet ($LOCAL_AUTH_CERT); the Local Account connector cannot verify it until a full ensure-authelia.sh run mints one"
+    fi
+
     # ${DOMAIN} is left as a token: ensure-dex.sh expands it in every drop-in, so a
-    # domain change needs no rewrite here. The secret is hex (openssl rand -hex), so
-    # writing it verbatim is safe.
+    # domain change needs no rewrite here (the certificate's name follows DOMAIN
+    # through ensure_local_auth_cert, which a full run calls first). The secret is
+    # hex (openssl rand -hex) and the certificate base64, so writing both verbatim
+    # is safe.
     TMP="$(mktemp "$CONNECTORS_D/.authelia.XXXXXX")"
     chmod 600 "$TMP"
     cat > "$TMP" <<YAML
   # Local Account — Authelia, the box-local credential store. Written by
-  # ensure-authelia.sh; edits here are overwritten.
-  # Publicly-trusted host so Dex's back-channel TLS validates against system
-  # roots. Authelia's own login page carries the password-reset link.
+  # ensure-authelia.sh; edits here are overwritten. The browser goes to
+  # local-auth-\${DOMAIN} through Caddy; Dex's own calls go to the same name on
+  # the auth stack's private network (authelia-internal), straight to Authelia,
+  # and trust only Authelia's own certificate (rootCAs). Authelia's login page
+  # carries the password-reset link.
   - type: oidc
     id: authelia
     name: Local Account
     config:
       issuer: https://local-auth-\${DOMAIN}
+      rootCAs:
+        - "${ROOT_CA}"
       clientID: dex
       clientSecret: "${AUTHELIA_DEX_SECRET}"
       # Dex's own connector callback.
@@ -247,8 +315,8 @@ YAML
         log_info "Wrote the Local Account connector ($DROPIN)"
     fi
 
-    # Check the path Dex will take to open that connector (local_auth_discovery_ok,
-    # library/authelia-ready.sh), and say so when it is broken.
+    # Check that Authelia serves discovery the way Dex will ask for it
+    # (local_auth_discovery_ok, library/authelia-ready.sh), and say so when not.
     #
     # A WARNING ONLY — the connector is written either way. Local Account is usually
     # this box's ONLY connector, so omitting it would trade a login that may not work
@@ -264,11 +332,8 @@ YAML
             sleep 3
         done
         if [ "$PROBE_RC" -eq 1 ]; then
-            log_warn "local-auth-$DOMAIN did not return a discovery document over the on-box path (127.0.0.1:443, mesh CA)"
-            log_warn "  Dex may fail to open the Local Account connector. Check that authelia is up and that"
-            log_warn "  mesh-router-caddy serves local-auth-$DOMAIN with the mesh certificate."
-        elif [ "$PROBE_RC" -eq 2 ] && [ -z "$(local_auth_ca)" ]; then
-            log_warn "The mesh CA is not under $MESH_ROOT/data yet; Dex cannot verify local-auth-$DOMAIN on the box until mesh-router-agent writes it"
+            log_warn "Authelia did not return a discovery document for local-auth-$DOMAIN over HTTPS with its own certificate"
+            log_warn "  Dex may fail to open the Local Account connector. Check 'docker logs authelia'."
         fi
     fi
 }
@@ -311,6 +376,10 @@ if [ ! -f "$OIDC_DIR/private.pem" ]; then
     openssl genrsa -out "$OIDC_DIR/private.pem" 4096 2>/dev/null
     chmod 600 "$OIDC_DIR/private.pem"
     echo "Generated Authelia OIDC JWKS keypair"
+fi
+
+if ensure_local_auth_cert; then
+    AUTHELIA_RESTART_NEEDED=1
 fi
 
 # --- Dex<->Authelia client secret -------------------------------------------
@@ -549,7 +618,7 @@ else
     echo "Nothing Authelia reads at startup changed; not restarting it"
 fi
 
-# After the restart: the connector step probes Authelia over the on-box path.
+# After the restart: the connector step probes Authelia as Dex will reach it.
 write_local_account_connector
 
 # If the secret was minted just now, a Dex config rendered before this run has a

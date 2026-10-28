@@ -230,8 +230,8 @@ if [ "$CONNECTOR_COUNT" -eq 0 ]; then
     fi
 elif [ "$(docker container inspect -f '{{.State.Running}}' dex 2>/dev/null)" = "true" ]; then
     # Same rule as the start below, for a restart: whatever restarted Authelia
-    # (or mesh-router-caddy) moments ago, Dex must not reopen its connectors
-    # before local-auth is routed again. Two quick probes when it already is.
+    # moments ago, Dex must not reopen its connectors before Authelia answers
+    # again. One quick probe when it already does.
     if [ -f "$CONNECTORS_D/authelia.yaml" ] \
         && [ "$(docker container inspect -f '{{.State.Running}}' authelia 2>/dev/null)" = "true" ]; then
         wait_for_authelia

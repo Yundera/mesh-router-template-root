@@ -675,7 +675,8 @@ different means.
   identity. The mesh-console, auth-console and Maison gates mount nothing from the mesh
   stack. (They briefly carried the same pin as Dex, in the working tree only; it never
   shipped.)
-- **Dex: the pin.** `extra_hosts: "local-auth-${DOMAIN}:host-gateway"`. The issuer string
+- **Dex: superseded 2026-10-28, see "Dex → Authelia on the auth stack's own TLS" below.**
+  The pin was `extra_hosts: "local-auth-${DOMAIN}:host-gateway"`. The issuer string
   is unchanged; only the lookup moves, to this host's `:443`, which is mesh-router-caddy.
 - **The trust.** On that path Caddy serves the mesh certificate (`gateway_tls`), so Dex
   gets `SSL_CERT_DIR=/ca` and a read-only mount of `data/ca`. A directory adds
@@ -704,6 +705,31 @@ gates registered and redirected to Dex. A browser login end to end was not done.
 
 This is the real fix for the cold-boot crash loop listed below: Dex no longer needs the public
 route to be registered to open its connector.
+
+
+## Dex → Authelia on the auth stack's own TLS — IMPLEMENTED (unreleased, 2026-10-28)
+
+Replaces Dex's pin above. The pin terminated on mesh-router-caddy with the mesh certificate,
+so the Local Account connector depended on what that certificate covered; backend 2.0.43
+dropped `*.<zone>` from it and the connector failed on every box at its next renewal
+("Connector failed to initialize"). The mesh no longer appears on that path at all:
+
+- **Authelia serves TLS itself on 443** (`server.tls`), with a self-signed certificate for
+  `local-auth-${DOMAIN}` that `ensure-authelia.sh` mints into `authelia/tls/`, and mints again
+  when DOMAIN changes or it nears expiry. Authelia refuses OIDC over plain HTTP
+  (`invalid X-Forwarded-Proto header value 'http'`) and on a host it is not configured for, so
+  neither `http://authelia:9091` nor Dex's `issuerAlias` can replace it.
+- **Dex reaches it by its public name on `authelia-internal`**, a network of the two alone,
+  where Authelia carries the alias `local-auth-${DOMAIN}`. No `extra_hosts`.
+- **The trust is in the connector**: `rootCAs` holds the certificate inline (base64), written
+  by `ensure-authelia.sh` with the rest of the connector. Dex adds it to the system pool for
+  that connector only. No `SSL_CERT_DIR`, no mesh CA mount, no file shared between the two.
+- **Caddy proxies the browser routes over HTTPS** (`tls` option in `stacks/auth/routes`),
+  without verifying the upstream: the hop stays on `pcs`, like every plain-HTTP upstream.
+- The readiness probe (`library/authelia-ready.sh`) asks Authelia the same way, over pcs with
+  the same certificate, and no longer waits for Caddy to re-add the route after a restart.
+
+`data/ca` stays where it is: the agent still writes it, but nothing in the auth stack reads it.
 
 ## What a Yundera PCS will rely on here — decided 2026-10-01
 

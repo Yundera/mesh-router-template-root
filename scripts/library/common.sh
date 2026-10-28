@@ -412,21 +412,25 @@ routing_host_suffixes() {
 # A stack's routes as Caddy labels — one group per route per domain — in a compose
 # override beside the stack: how the platform's own stacks follow the box's domains,
 # the way Maison does it for store apps. <domains> is a ROUTING_DOMAINS value;
-# <routes-file> lists the stack's routes, `<service>|<name>|<port>[|nodot]` per line,
+# <routes-file> lists the stack's routes, `<service>|<name>|<port>[|<options>]` per line,
 # `#` for comments. Written only when it changes. With <domains> empty (the IP not
 # known yet) nothing is written, so the stack keeps the routes it had.
 #
 # Each route also gets the dot form <name>.${DOMAIN}, with no proxy labels: the
-# Caddyfile's *.${DOMAIN} site covers it (see routing_domains). A route marked `nodot`
-# keeps the dash form only (Dex and Authelia: their issuer URLs are baked into
-# sessions and tokens).
+# Caddyfile's *.${DOMAIN} site covers it (see routing_domains). The fourth field is a
+# comma list of options:
+#   nodot  keep the dash form only (Dex and Authelia: their issuer URLs are baked into
+#          sessions and tokens);
+#   tls    the upstream serves HTTPS itself. Caddy does not verify its certificate:
+#          the hop stays on the box's docker network, the same trust the plain-HTTP
+#          upstreams get, and the upstream's certificate is its stack's own business.
 #
 # The override's name is the one compose loads by itself, so a hand-run
 # `docker compose up` in the stack's folder, and Maison starting the stack, carry the
 # routes too. A caller passing -f explicitly must pass it (stack_compose below).
 render_routing_override() {
     local domains="$1" spec="$2" out="$3"
-    local svc name port opts entry suffix l n tmp dot
+    local svc name port opts entry suffix l n tmp dot upstream dash_only
     local -a services=() entries=() kv=()
     local -A labels=() count=()
     [ -n "$domains" ] && [ -f "$spec" ] || return 0
@@ -435,6 +439,16 @@ render_routing_override() {
     while IFS='|' read -r svc name port opts; do
         svc="${svc//[[:space:]]/}" name="${name//[[:space:]]/}" port="${port//[[:space:]]/}" opts="${opts//[[:space:]]/}"
         case "$svc" in "" | \#*) continue ;; esac
+        dash_only=0
+        upstream="      caddy_N.reverse_proxy: \"{{upstreams $port}}\""$'\n'
+        case ",$opts," in *,nodot,*) dash_only=1 ;; esac
+        case ",$opts," in
+            *,tls,*)
+                upstream="      caddy_N.reverse_proxy: \"{{upstreams https $port}}\""$'\n'
+                upstream+="      caddy_N.reverse_proxy.transport: http"$'\n'
+                upstream+="      caddy_N.reverse_proxy.transport.tls_insecure_skip_verify: \"\""$'\n'
+                ;;
+        esac
         if [ -z "${count[$svc]+set}" ]; then
             services+=("$svc")
             count[$svc]=0
@@ -449,13 +463,13 @@ render_routing_override() {
                     labels[$svc]+="      caddy_$n.${l%%=*}: ${l#*=}"$'\n'
                 done
             fi
-            labels[$svc]+="      caddy_$n.reverse_proxy: \"{{upstreams $port}}\""$'\n'
+            labels[$svc]+="${upstream//caddy_N/caddy_$n}"
             count[$svc]=$((n + 1))
         done
-        if [ -n "$dot" ] && [ "$opts" != "nodot" ]; then
+        if [ -n "$dot" ] && [ "$dash_only" -eq 0 ]; then
             n="${count[$svc]}"
             labels[$svc]+="      caddy_$n: $name.$dot"$'\n'
-            labels[$svc]+="      caddy_$n.reverse_proxy: \"{{upstreams $port}}\""$'\n'
+            labels[$svc]+="${upstream//caddy_N/caddy_$n}"
             count[$svc]=$((n + 1))
         fi
     done < <(tr -d '\r' <"$spec")

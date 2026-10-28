@@ -22,13 +22,12 @@
 # dex-frontend/); adopt_auth_state (scripts/library/common.sh) renames them across
 # on a box that still has them there, before this file is brought up.
 #
-# Needs the mesh stack for four things, all by name or by path, none by
-# depends_on (which cannot cross projects): mesh-router-caddy routes auth-${DOMAIN}
-# and local-auth-${DOMAIN} (and is what Dex's on-box issuer pin terminates on),
-# mesh-router-agent writes the mesh CA Dex trusts
-# (${DATA_ROOT}/AppData/mesh/data/ca), smtp relays Authelia's password-reset mail, and the
-# `pcs` network — external here as in every stack — is created before either
-# stack comes up (ensure_pcs_network).
+# Needs the mesh stack for three things, all by name, none by depends_on (which
+# cannot cross projects): mesh-router-caddy routes auth-${DOMAIN} and
+# local-auth-${DOMAIN} for the browser, smtp relays Authelia's password-reset mail,
+# and the `pcs` network — external here as in every stack — is created before
+# either stack comes up (ensure_pcs_network). Nothing in the mesh is on the path
+# between Dex and Authelia: see authelia-internal.
 #
 # AUTH-CONSOLE (Yundera/auth-console) is this stack's web UI and the tile's target:
 # the local accounts (Authelia users) and who can reach the host over SSH. An
@@ -78,38 +77,15 @@ services:
       # Turning it on gives Dex a real `dex_session` browser cookie, which is
       # what makes it an OP you can log out of.
       DEX_SESSIONS_ENABLED: "true"
-      # Trust the mesh CA IN ADDITION TO the image's public bundle. The Local
-      # Account connector's issuer is pinned on-box (extra_hosts below), where
-      # TLS is the mesh certificate Caddy serves through `gateway_tls`, not a
-      # publicly-trusted one.
-      #
-      # SSL_CERT_DIR and NOT SSL_CERT_FILE: Go keeps its certFiles and replaces
-      # only certDirectories, so a directory ADDS roots while SSL_CERT_FILE would
-      # REPLACE the image's bundle — and a drop-in connector whose issuer is
-      # genuinely off-box still needs the public roots.
-      #
-      # Relies on the image keeping a bundle at one of Go's default certFiles
-      # paths. Verified for the digest pinned above:
-      # /etc/ssl/certs/ca-certificates.crt. RE-VERIFY ON REPIN.
-      SSL_CERT_DIR: "/ca"
-    # KEEP THE CONNECTOR BACK-CHANNEL ON THE BOX. ensure-dex.sh renders the Local
-    # Account connector with `issuer: https://local-auth-${DOMAIN}`, and Dex does
-    # discovery, the code exchange and the key fetch against that public
-    # hostname. Resolved publicly, those calls leave the box, cross the gateway
-    # and re-enter this same machine — so Dex could not open the connector until
-    # the public route was registered (the cold-boot crash loop), and login
-    # depended on a path that has nothing to do with this box's own health.
-    #
-    # The issuer STRING does not change, so Authelia's discovery document still
-    # matches and every redirect the browser sees is unchanged. Only the lookup
-    # moves. Plain HTTP is not an alternative: the scheme is part of the issuer.
-    extra_hosts:
-      - "local-auth-${DOMAIN}:host-gateway"
+    # NO extra_hosts, NO mesh CA. The Local Account connector's back-channel
+    # (discovery, code exchange, keys, userinfo) goes to local-auth-${DOMAIN},
+    # which on authelia-internal is Authelia itself; the connector trusts
+    # Authelia's own certificate, inlined by ensure-authelia.sh. Until 2026-10-28
+    # the name was pinned to host-gateway and terminated on mesh-router-caddy with
+    # the mesh certificate, so login depended on what that certificate happened
+    # to cover: backend 2.0.43 dropped *.<zone> from it and Local Account broke on
+    # every box at its next renewal.
     volumes:
-      # The mesh CA that SSL_CERT_DIR points at — written there by
-      # mesh-router-agent (CA_CERT_PATH, mesh stack), in a directory of its own so
-      # the mesh private key never travels with it.
-      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/ca:ro
       # config.yaml (rendered) + dex.db (sqlite). This is CACHE, not precious
       # data — see the recovery note in scripts/self-check/ensure-dex.sh.
       - ${DATA_ROOT:-/DATA}/AppData/auth/dex:/data
@@ -149,6 +125,8 @@ services:
       dex-internal:
         aliases:
           - dex-grpc
+      # Where local-auth-${DOMAIN} resolves to Authelia. See the network.
+      authelia-internal: null
     # No depends_on: authelia is in this stack but Dex must not block on it, and
     # Dex retries a connector's back-channel on use, so cold-boot ordering
     # resolves itself.
@@ -187,9 +165,16 @@ services:
       # Unlike the dex dir this holds the local account — back it up.
       - ${DATA_ROOT:-/DATA}/AppData/auth/authelia:/config
     expose:
-      - "9091"
+      - "443"
     networks:
+      # Caddy reaches it here, for the browser.
       pcs: null
+      # Dex reaches it here, by its public name: the alias exists only in this
+      # network's DNS scope, so only a member resolves local-auth-${DOMAIN} to
+      # this container.
+      authelia-internal:
+        aliases:
+          - local-auth-${DOMAIN}
 
   # =============================================================================
   # AUTH-REGISTRAR - OIDC client self-registration for PCS apps
@@ -407,6 +392,14 @@ networks:
   # other host docker networks. See the alias note on the dex service.
   dex-internal:
     name: dex-internal
+    internal: true
+
+  # Dex and Authelia, nothing else: the Local Account connector's back-channel.
+  # Not dex-internal, whose gRPC port is Dex's unauthenticated admin API — Authelia
+  # has no business reaching it, nor auth-registrar Authelia. internal: true, both
+  # members get their egress from pcs. Owned by this project.
+  authelia-internal:
+    name: authelia-internal
     internal: true
 
 # Tiles the stack in Maison's System grid (`view` is only the grid on a current

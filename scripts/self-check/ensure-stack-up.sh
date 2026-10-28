@@ -44,9 +44,10 @@ render_routing_override "$(routing_domains_value)" "$TEMPLATE_DIR/stacks/mesh/ro
 # The Dex login-theme files and the Authelia pin check that used to sit here moved
 # to ensure-auth-stack.sh with the services they protect.
 
-# THE MESH CA LIVES IN data/ca, ALONE. Dex mounts that
-# directory read-only to trust the certificate Caddy serves on the on-box path
-# (see CA_CERT_PATH on mesh-router-agent in docker-compose.yml). Before that
+# THE MESH CA LIVES IN data/ca, ALONE, for any consumer that needs to trust the
+# certificate Caddy serves through gateway_tls (see CA_CERT_PATH on
+# mesh-router-agent in docker-compose.yml). Dex mounted it until 2026-10-28; the
+# auth stack now has its own certificate (ensure-authelia.sh). Before that
 # variable existed the agent wrote the CA beside the private key, in data/certs.
 #
 # MOVED, not copied: one CA file, and the agent its only writer. A copy would

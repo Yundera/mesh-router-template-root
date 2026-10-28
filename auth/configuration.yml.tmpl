@@ -23,8 +23,18 @@
 # Ported from Yundera/template-root (root/auth/configuration.yml.tmpl).
 # =============================================================================
 
+# TLS on Authelia itself, on 443: the port the issuer URL implies. Dex reaches
+# local-auth-${DOMAIN} directly on the auth stack's private network (the
+# authelia-internal alias in stacks/auth/docker-compose.yml) and trusts this
+# certificate alone, inlined in its connector — no hop through the mesh, no mesh
+# CA. Authelia answers OIDC only over HTTPS, so plain HTTP there is not an option.
+# Caddy proxies the public routes to this same listener. The certificate is minted
+# and renewed by ensure-authelia.sh into tls/.
 server:
-  address: 'tcp://0.0.0.0:9091'
+  address: 'tcp://0.0.0.0:443'
+  tls:
+    certificate: '/config/tls/cert.pem'
+    key: '/config/tls/key.pem'
   buffers:
     read: 16384
     write: 16384
