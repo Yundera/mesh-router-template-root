@@ -300,7 +300,9 @@ emit_env_for_compose() {
 # the gateway and the CF worker trust; sslip.io has none and falls through to Let's
 # Encrypt. The CF worker reaches the box on <app>-<ip>.<IP_ZONE>, falling back to
 # sslip.io. A box without IP_ZONE is misconfigured (ensure-ip-zone.sh) and gets no
-# IP-zone domain: there is no nip.io fallback.
+# IP-zone domain: there is no nip.io fallback. SSLIP_ROUTES=off drops sslip.io (a box
+# rebuilt daily, which never keeps its Let's Encrypt certificates); the Caddyfile's
+# root <ip>.sslip.io site stays either way.
 routing_domains() {
     # shellcheck disable=SC2016 # expanded by the renderers below, not here
     local dot='dot|{name}.${DOMAIN}|'
@@ -322,7 +324,9 @@ routing_domains() {
         if [ -n "$(get_env_value IP_ZONE)" ]; then
             printf '%s\n' 'ip|${PUBLIC_IP_DASH}.${IP_ZONE}|import=gateway_tls'
         fi
-        printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
+        if [ "$(get_env_value SSLIP_ROUTES)" != off ]; then
+            printf '%s\n' 'sslip|${PUBLIC_IP_DASH}.sslip.io|'
+        fi
     }
 }
 
