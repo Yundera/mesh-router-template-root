@@ -31,28 +31,14 @@
 
     # Pin ACME to Let's Encrypt only. ZeroSSL was the default fallback and was
     # failing every attempt with "Invalid signature on JWS request", doubling
-    # the failed-obtain rate for no benefit. With one healthy issuer we still
-    # tolerate LE outages via the internal-CA fallback below.
-    acme_ca https://acme-v02.api.letsencrypt.org/directory
-
-    # Default issuer chain for any site without an explicit `tls` directive —
-    # in practice that's all *.sslip.io labels (including ones emitted by
-    # third-party app compose files we don't control). Caddy tries LE first;
-    # when it fails (rate limits, malformed hostnames from empty
-    # ${PUBLIC_IP_DASH} interpolation, etc.) it falls through to the internal
-    # CA and issues a self-signed cert. Browsers warn on self-signed, but
-    # nobody is hitting the malformed hostnames anyway — the point is to
-    # break the every-5-minutes ACME retry storm that pegs Caddy's CPU.
+    # the failed-obtain rate for no benefit.
     #
-    # 168h leaf lifetime → Caddy renews each host every ~4-5 days instead of
-    # retrying ACME every 5 minutes per host. Bounds CPU even at 100+
-    # services with broken labels: ~22 cert renewals/day total, vs. the
-    # previous ~28 800/day storm. Stays inside the 7-day default lifetime of
-    # the internal intermediate CA, so we don't need `sign_with_root`.
-    cert_issuer acme
-    cert_issuer internal {
-        lifetime 168h
-    }
+    # No internal-CA fallback: a site without a `tls` directive (the sslip.io
+    # names) gets a Let's Encrypt certificate or none. The fallback (2026-05)
+    # capped a retry storm on hostnames malformed by an empty ${PUBLIC_IP_DASH};
+    # routes are rendered with the IP filled in now, and it had turned every
+    # cancelled order (a config reload mid-order) into days of self-signed.
+    acme_ca https://acme-v02.api.letsencrypt.org/directory
 
     # PROXY v2 from the gateways (client address on passthrough) and their
     # X-Forwarded-For on terminated requests: a `servers :443` block that

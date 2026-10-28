@@ -85,8 +85,8 @@ to the tunnel.
 **Caddy.** The base config is the repo's `Caddyfile`, copied to
 `${DATA_ROOT}/AppData/mesh/Caddyfile` and bind-mounted read-only. It contains:
 
-- **Global options.** ACME pinned to Let's Encrypt, with an internal-CA fallback (168 h
-  leaves) that stops the retry storm on unissuable hostnames.
+- **Global options.** ACME pinned to Let's Encrypt, no internal-CA fallback: a sslip.io
+  name gets a Let's Encrypt certificate or none.
 - **`(gateway_tls)`.** Serves the mesh certificate (`/certs/cert.pem`, `key.pem`, written
   by the agent), which the gateways trust. It also restores `Host` from
   `X-Original-Host`, because the CF worker rewrites `Host` to the box's IP name.
