@@ -199,6 +199,21 @@ env_get() {
   grep -E "^${key}=" "$ENV_SRC" | head -n1 | cut -d= -f2- || true
 }
 
+# usage_report_notice <how to turn it off>: say what this box reports, at the end of
+# every install. Read from the .env actually written ($ENV_FILE): absent = on.
+usage_report_notice() {
+  local state backend
+  state="$(grep -E '^MESH_USAGE_REPORT=' "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+  backend="${PROVIDER_STR%%,*}"
+  if [[ "$state" == off ]]; then
+    echo "Usage reporting: off."
+  else
+    echo "Usage reporting: on. Once a day's list grows, this box sends ${backend:-its backend}"
+    echo "the date and the names of the apps opened from outside it (nothing else)."
+    echo "Turn it off in Mesh Console (Overview) or with: $1"
+  fi
+}
+
 ENV_FILE="$APP_DIR/.env"
 env_set() {
   # Upsert KEY=VALUE in $ENV_FILE without disturbing other keys (atomic). This
@@ -667,6 +682,8 @@ if [[ "$WINDOWS_MODE" == true ]]; then
   echo ""
   echo "Open https://${DOMAIN} to sign in to the Maison dashboard."
   echo "To update, re-run this installer with no arguments."
+  echo ""
+  usage_report_notice "MESH_USAGE_REPORT=off in ${ENV_FILE}, then re-run this installer"
   exit 0
 fi
 
@@ -874,6 +891,8 @@ if [[ "$SELF_CHECK_RC" -eq 0 ]]; then
   echo "box's configuration back from ${ENV_FILE}:"
   echo ""
   echo "  sudo bash ${TEMPLATE_DIR}/install.sh"
+  echo ""
+  usage_report_notice "sudo bash ${SCRIPTS_DIR}/tools/set-usage-report.sh off"
 else
   echo "=== Installation finished with self-check failures (exit ${SELF_CHECK_RC}) ==="
   echo "  Log:    ${MESH_ROOT}/log/mesh.log"

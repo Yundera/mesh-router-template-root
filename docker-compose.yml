@@ -57,7 +57,7 @@ services:
       - mesh-router-caddy
 
   mesh-router-agent:
-    image: ghcr.io/yundera/mesh-router-agent:1.2.0
+    image: ghcr.io/yundera/mesh-router-agent:1.3.0
     container_name: mesh-router-agent
     hostname: mesh-router-agent
     cpu_shares: 90
@@ -87,15 +87,23 @@ services:
       # MOVES that file here on a box that predates this, so there is one CA file
       # and the agent is its only writer.
       - CA_CERT_PATH=/app/ca/ca-cert.pem
+      # USAGE REPORTING (tools/set-usage-report.sh): the agent listens on udp/5140 for
+      # mesh-router-caddy's access log and reports the apps opened per day (date + app
+      # names) to the backend in PROVIDER. Its state file, data/usage/state.json, is what
+      # Mesh Console shows. DOMAIN tells which app a request was for.
+      - MESH_USAGE_REPORT=${MESH_USAGE_REPORT:-on}
+      - DOMAIN=${DOMAIN}
+      - USAGE_STATE_PATH=/app/usage/state.json
     volumes:
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/certs:/app/data
       # Read-write: this is where the agent WRITES the CA, per CA_CERT_PATH above.
       - ${DATA_ROOT:-/DATA}/AppData/mesh/data/ca:/app/ca
+      - ${DATA_ROOT:-/DATA}/AppData/mesh/data/usage:/app/usage
     networks:
       pcs: null
 
   mesh-router-caddy:
-    image: ghcr.io/yundera/mesh-router-caddy:1.4.5
+    image: ghcr.io/yundera/mesh-router-caddy:1.5.0
     container_name: mesh-router-caddy
     hostname: mesh-router-caddy
     cpu_shares: 90
@@ -135,6 +143,9 @@ services:
       # the box identity: asks the backend whether the zone is delegated, and is the
       # acme-dns credential for the zone's DNS-01 certificates (entrypoint, BOX ZONE)
       - PROVIDER_STR=${PROVIDER_STR:-${PROVIDER:-}}
+      # on: the access log goes to mesh-router-agent (udp/5140) for usage reporting
+      # (entrypoint, USAGE); off: no access log at all. Same key as the agent's.
+      - MESH_USAGE_REPORT=${MESH_USAGE_REPORT:-on}
     networks:
       pcs: null
     depends_on:

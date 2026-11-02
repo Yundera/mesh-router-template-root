@@ -12,7 +12,7 @@
 # replace would leave the container reading the old file forever and the
 # entrypoint's inotify watcher would never fire.
 #
-# Mirrors Yundera/template-root's root/Caddyfile. Keep the two aligned.
+# Also the Caddyfile of a managed Yundera PCS: Yundera/template-root has none of its own.
 # =============================================================================
 
 {
@@ -24,6 +24,8 @@
         # was most of a container log growing ~50 MB/day. The watcher prints its
         # own line whenever it changes anything.
         exclude admin.api
+        # The access log goes only to the `usage` logger below, never to stdout.
+        exclude http.log.access
     }
 
     # Let's Encrypt email for certificate registration (used for sslip.io domains)
@@ -47,6 +49,11 @@
     # write the file yet only logs a warning: caddy-docker-proxy drops a block
     # whose plain import is missing.
     import /data/mesh-proxy*.caddy
+
+    # Usage reporting (MESH_USAGE_REPORT, on by default): a `usage` logger that streams
+    # the access log to mesh-router-agent, written by mesh-router-caddy's entrypoint
+    # (USAGE). A glob, so "off" (no file) or an older image only logs a warning.
+    import /data/mesh-usage*.caddy
 }
 
 # The box zone's TLS: two snippets written by mesh-router-caddy itself (entrypoint,

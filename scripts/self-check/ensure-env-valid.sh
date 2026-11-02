@@ -121,6 +121,13 @@ if [ -n "$SYNC_OUT" ]; then
     FIXED=1
 fi
 
+# Usage reporting (tools/set-usage-report.sh). Absent = on, the default; anything but
+# "off" reads as on in Caddy and the agent alike, so say so rather than guess.
+case "$(get_env_value MESH_USAGE_REPORT)" in
+    ''|on|off) ;;
+    *) echo "WARN: unknown MESH_USAGE_REPORT='$(get_env_value MESH_USAGE_REPORT)', treated as on" ;;
+esac
+
 chmod 600 "$ENV_FILE"
 
 if [ "$FIXED" -eq 0 ]; then
