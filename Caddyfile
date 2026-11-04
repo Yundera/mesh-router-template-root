@@ -65,7 +65,13 @@
 import /data/mesh-zone.caddy
 
 # Custom CA TLS for gateway-routed and ip.<zone> (IP_ZONE) domains
-# Gateway trusts this CA, so no LE needed for these routes
+# Gateway trusts this CA, so no LE needed for these routes.
+# cert0 is served by tag on every site importing this, whatever name it covers. Since
+# backend 2.0.43 it covers only *.ip.<zone>, <label>.box.<zone> and the IP, and Caddy
+# automates every site name no loaded certificate covers: without the `issuer internal`
+# below, each dash name and the non-delegated root ordered a Let's Encrypt certificate
+# (HTTP-01 through the Worker), filling the zone's 50/week. The internal issuer makes
+# those automated certificates local; cert0 is still the one served (any_tag cert0).
 (gateway_tls) {
     # Restore original host when request comes through CF worker
     # The CF worker may rewrite Host to an IP name for routing, but preserves
@@ -73,7 +79,9 @@ import /data/mesh-zone.caddy
     # apps generate correct redirect URLs and cookie domains.
     @has_original_host header X-Original-Host *
     request_header @has_original_host Host {http.request.header.X-Original-Host}
-    tls /certs/cert.pem /certs/key.pem
+    tls /certs/cert.pem /certs/key.pem {
+        issuer internal
+    }
 }
 
 # =============================================================================
