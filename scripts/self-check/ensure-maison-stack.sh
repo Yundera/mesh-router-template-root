@@ -139,7 +139,10 @@ fi
 # value differs from the stored one, so re-asserting it every run costs nothing. A
 # Maison older than the routing setting (1.1.80) refuses it, which fails this check
 # until the pinned image is running.
-routing_setting_json | maison_cli settings set routing --owner "$OWNER" || CLI_FAILED=1
+# A Maison older than `cert-store` refuses the whole value: retry without it.
+routing_setting_json | maison_cli settings set routing --owner "$OWNER" 2>/dev/null \
+    || routing_setting_json legacy | maison_cli settings set routing --owner "$OWNER" \
+    || CLI_FAILED=1
 
 # The store: the user's list, but the deployment's own store is always on it.
 STORE_URL="$(env_get APPSTORE_URL)"

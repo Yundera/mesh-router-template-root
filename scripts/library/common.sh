@@ -375,7 +375,17 @@ routing_setting_json() {
         case "$suffix" in *"{name}"*) ;; *) suffix="{name}-$suffix" ;; esac
         out+="${out:+,}{\"name\":\"$name\",\"domain\":\"$suffix\"$json}"
     done < <(routing_domains)
-    printf '{"renderer":"labels","dialect":"caddy","domains":[%s]}' "$out"
+    # cert-store: where this stack's Caddy keeps its certificates, for apps that ask
+    # Maison for a copy (x-compose-app `certificates`: IMAPS and other listeners
+    # Caddy does not carry). A host path; Maison picks a host per app from it.
+    # `routing_setting_json legacy` leaves it out, for a Maison older than the field
+    # (it decodes the setting strictly and would refuse the whole value).
+    if [ "${1:-}" = legacy ]; then
+        printf '{"renderer":"labels","dialect":"caddy","domains":[%s]}' "$out"
+    else
+        printf '{"renderer":"labels","dialect":"caddy","domains":[%s],"cert-store":"%s"}' \
+            "$out" "$MESH_ROOT/data/caddy/data/caddy/certificates"
+    fi
 }
 
 # The domains resolved against the mesh .env, as one .env value: per domain
