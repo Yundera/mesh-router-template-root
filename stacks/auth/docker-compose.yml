@@ -287,7 +287,7 @@ services:
   # only logs everyone out of this console.
   # =============================================================================
   auth-console:
-    image: ghcr.io/yundera/appshield:3.2.0
+    image: ghcr.io/yundera/appshield:4.1.0
     container_name: auth-console
     hostname: auth-console
     restart: unless-stopped
@@ -312,7 +312,7 @@ services:
       LISTEN_PORT: "80"
       SESSION_DURATION_HOURS: "720"
       # Signs the identity assertion for auth-console-app, and verifies the control
-      # tokens it sends back (POST /nhl-auth/sessions/revoke when an account is
+      # tokens it sends back (POST /AppShield/sessions/revoke when an account is
       # deleted or its password reset).
       IDENTITY_ASSERTION_SECRET: "${AUTH_CONSOLE_ASSERTION_SECRET}"
       # The only path that answers without a login: a liveness probe, no data.

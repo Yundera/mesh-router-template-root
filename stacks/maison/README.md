@@ -48,7 +48,8 @@ Pin rules, explained in full in `docker-compose.yml`:
 ```
 DOCKER_GID     stat -c %g /var/run/docker.sock        → passed to deploy-stack.sh
 TZ             /etc/timezone or /etc/localtime        → passed to deploy-stack.sh
-.env.app       mesh .env (DOMAIN, PUBLIC_IP*, EMAIL, IP_ZONE)
+.env.app       mesh .env (DOMAIN, PUBLIC_IP*, EMAIL, IP_ZONE),
+               + OIDC_REGISTRAR_URL (mesh .env, else the auth stack's auth-registrar)
                                                       → maison/.env.app   (tmp + mv, 0600)
 tools/deploy-stack.sh maison … DOCKER_GID=… TZ=…:
   stacks/maison/docker-compose.yml → maison/docker-compose.yml
