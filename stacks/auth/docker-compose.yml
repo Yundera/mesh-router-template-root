@@ -193,7 +193,7 @@ services:
   # this is invisible.
   # =============================================================================
   auth-registrar:
-    image: ghcr.io/yundera/mesh-auth:1.1.9
+    image: ghcr.io/nsl-sh/mesh-auth:1.1.9
     container_name: auth-registrar
     hostname: auth-registrar
     cpu_shares: 40
@@ -333,7 +333,7 @@ services:
   auth-console-app:
     # Publish the tag before moving this pin: a tag missing from ghcr costs every
     # self-check the pull backoff.
-    image: ghcr.io/yundera/auth-console:1.1.0
+    image: ghcr.io/nsl-sh/auth-console:1.1.0
     container_name: auth-console-app
     hostname: auth-console-app
     restart: unless-stopped
