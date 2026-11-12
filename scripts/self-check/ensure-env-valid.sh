@@ -128,6 +128,12 @@ case "$(get_env_value MESH_USAGE_REPORT)" in
     *) echo "WARN: unknown MESH_USAGE_REPORT='$(get_env_value MESH_USAGE_REPORT)', treated as on" ;;
 esac
 
+# Zone certificates (mesh-router-caddy, BOX ZONE): only "gateway" acts.
+case "$(get_env_value MESH_ZONE_CERTS)" in
+    ''|box|gateway) ;;
+    *) echo "WARN: unknown MESH_ZONE_CERTS='$(get_env_value MESH_ZONE_CERTS)', treated as box" ;;
+esac
+
 chmod 600 "$ENV_FILE"
 
 if [ "$FIXED" -eq 0 ]; then
